@@ -303,7 +303,7 @@ vbox.layout.margin = "15px 0px 10px 0px"
 
 # -------- Buckingham Tab-------------
 
-buck_btn = v.Btn(children=["Buckingham theorem"], color="blue", width="50%")
+buck_btn = v.Btn(children=["Buckingham theorem"], color="orange", width="50%")
 buck_btn.on_event('click', buckingham)
 
 box3 = v.Container(children=[v.Row(children=[buck_btn], justify="center")])
@@ -311,11 +311,30 @@ box3 = v.Container(children=[v.Row(children=[buck_btn], justify="center")])
 buck_area = v.Textarea(v_model='',
                        type='html',
                        label='Buckingham theorem output',
-                       filled=True,
+                       background_color="orange lighten-4",
+                       readonly=True,
+                       outlined=True,
                        auto_grow=True,
                        row=15)
 
-force_buck_btn = v.Btn(children=["Force Buckingham"], color="blue", width="50%")
+force_buck_info = v.Alert(type="info", border="top", style_ = "margin : 5px",
+                          children=["The equation variables must have the same name as in the previous tab"]
+                          )
+
+force_eq = v.TextField(label="Type your expression here", width=300, outlined=True, class_="mx-2")
+force_eq_btn = v.Btn(children=["Add pi number"], color="orange", class_="mx-2")
+
+force_box = v.Container(justify="space-between", children=[v.Row(children=[force_eq, force_eq_btn])])
+
+force_area = v.Textarea(label="Forced Pi numbers",
+                        outlined=True,
+                        background_color="orange lighten-4",
+                        readonly=True,
+                        clearable=True,
+                        auto_grow=True,
+                        row=6)
+
+force_buck_btn = v.Btn(children=["Complete Pi set"], color="orange", width="50%")
 force_buck_btn.on_event('click', buckingham)
 
 box4 = v.Container(children=[v.Row(children=[force_buck_btn], justify="center")])
@@ -323,11 +342,13 @@ box4 = v.Container(children=[v.Row(children=[force_buck_btn], justify="center")]
 force_buck_area = v.Textarea(v_model='',
                              type='html',
                              label='Force Buckingham output',
-                             filled=True,
+                             background_color="orange lighten-4",
+                             readonly=True,
+                             outlined=True,
                              auto_grow=True,
                              row=15)
 
-auto_buck_btn = v.Btn(children=["Automatic Buckingham"], color="blue", width="50%")
+auto_buck_btn = v.Btn(children=["Automatic Buckingham"], color="orange", width="50%")
 auto_buck_btn.on_event('click', buckingham)
 
 box5 = v.Container(children=[v.Row(children=[auto_buck_btn], justify="center")])
@@ -335,7 +356,9 @@ box5 = v.Container(children=[v.Row(children=[auto_buck_btn], justify="center")])
 auto_buck_area = v.Textarea(v_model='',
                             type='html',
                             label='Automatic Buckingham output',
-                            filled=True,
+                            outlined=True,
+                            background_color="orange lighten-4",
+                            readonly=True,
                             auto_grow=True,
                             row=15)
 
@@ -343,23 +366,33 @@ check1 = v.Checkbox(v_model="True", label="Choose this Pi set", color="green")
 check2 = v.Checkbox(label="Choose this Pi set", color="green")
 check3 = v.Checkbox(label="Choose this Pi set", color="green")
 
-exp_panel = v.ExpansionPanels(v_model=0, multiple=True, children=[
-    v.ExpansionPanel(children=[v.ExpansionPanelHeader(color="blue lighten-2", children=["Simple Buckingham"]),
+exp_panel = v.ExpansionPanels(v_model=[0], multiple=True, children=[
+    v.ExpansionPanel(children=[v.ExpansionPanelHeader(color="orange lighten-2", children=["Simple Buckingham"]),
                                v.ExpansionPanelContent(children=[box3, buck_area, check1])
                                ]),
-    v.ExpansionPanel(children=[v.ExpansionPanelHeader(color="blue lighten-1", children=["Force Buckingham"]),
-                               v.ExpansionPanelContent(children=[box4, force_buck_area, check2])
+    v.ExpansionPanel(children=[v.ExpansionPanelHeader(color="orange lighten-1", children=["Force Buckingham"]),
+                               v.ExpansionPanelContent(children=[force_buck_info,
+                                                                 force_box,
+                                                                 force_area,
+                                                                 box4,
+                                                                 force_buck_area,
+                                                                 check2])
                                ]),
-    v.ExpansionPanel(children=[v.ExpansionPanelHeader(color="blue", children=["Automatic Buckingham"]),
+    v.ExpansionPanel(children=[v.ExpansionPanelHeader(color="orange", children=["Automatic Buckingham"]),
                                v.ExpansionPanelContent(children=[box5, auto_buck_area, check3])
                                ])
     ]
     )
 
-confirm_pi_set = v.Btn(children=["Confirm Pi set"], color="green")
+confirm_pi_set = v.Btn(children=["Confirm Pi set"], color="green", class_="mx-2", width=200, height=70)
+current_set = v.Card(color="green lighten-3", class_="mx-2", width=200,
+                     children=[v.CardTitle(children=["Selected Pi set:"])]
+                     )
+cont = v.Container(children=[v.Row(children=[current_set, confirm_pi_set], justify="space-between")])
 
-vbox2 = widgets.VBox([exp_panel, confirm_pi_set])
+vbox2 = widgets.VBox([exp_panel, cont])
 vbox2.layout.margin = "15px 0px 10px 0px"
+vbox2.layout.justify_content = "space-between"
 
 # ---------- DOE Tab---------------
 
@@ -407,6 +440,7 @@ tabs = v.Tabs(v_model="tab", children=[v.Tab(children=["Phyical quantities"]),
               background_color="cyan", center_active=True, dark=True, slider_color="yellow")
 
 fc_save = ipf.FileChooser('./')
+fc_save.filter_pattern = '*.txt'
 
 save_btn = v.Btn(color='blue darken-2', class_="mx-2", dark=True, width=300, children=['Save'])
 save_btn.on_event('click', save)
