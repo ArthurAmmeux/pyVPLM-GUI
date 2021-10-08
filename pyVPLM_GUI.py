@@ -433,7 +433,7 @@ regression_card = v.Card(height=400, color="orange lighten-2",
 
 # --------- Main widgets------------
 
-tabs = v.Tabs(v_model="tab", children=[v.Tab(children=["Phyical quantities"]),
+tabs = v.Tabs(v_model="tab", children=[v.Tab(children=["Physical quantities"]),
                                        v.Tab(children=["Buckingham theorem"]),
                                        v.Tab(children=["DOE"]),
                                        v.Tab(children=["Result import"]),
