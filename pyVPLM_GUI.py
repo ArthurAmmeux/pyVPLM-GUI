@@ -4,6 +4,7 @@ from pyvplm.core.definition import PositiveParameter, PositiveParameterSet
 from pyvplm.addon.variablepowerlaw import buckingham_theorem
 from pint import UnitRegistry
 import save_load as sl
+import pi_format as pif
 
 # Import libs
 import ipyfilechooser as ipf
@@ -21,7 +22,7 @@ def check_name(name):
         return False
     for item in sheet.items:
         if item['name'] == name:
-            name_entry.error_messages = "name aready exists"
+            name_entry.error_messages = "name already exists"
             return False
     return True
 
@@ -48,7 +49,7 @@ def check_bounds():
     lb = lb_entry.v_model
     ub = ub_entry.v_model
     lbool = lb is None or lb == ""
-    ubool = ub is None or lb == ""
+    ubool = ub is None or ub == ""
     if ubool:
         ub_entry.error_messages = "please specify upper bound"
         return False
@@ -121,7 +122,8 @@ def add_item(widget, data, event):
                                       "description": description,
                                       "unit": unit,
                                       "lower bound": lower_bound,
-                                      "upper bound": upper_bound}]
+                                      "upper bound": upper_bound,
+                                      "in/out": "Input"}]
 
 
 def buckingham(widget, data, event):
@@ -144,7 +146,10 @@ def buckingham(widget, data, event):
                 param_set = PositiveParameterSet(param)
                 first = False
         pi_set, _ = buckingham_theorem(param_set, True)
-        buck_area.v_model = str(pi_set)
+        pi_set_str = str(pi_set)
+        buck_area.v_model = pi_set_str
+        formatted_pi_set = pif.format_pi_set(pi_set_str)
+        force_area.v_model = formatted_pi_set
     # buck_area.v_model = latex
     widget.loading = False
     widget.disabled = False
@@ -185,6 +190,17 @@ def down_item(widget, data, event):
                     sheet.items = sheet.items[0:i] + [sheet.items[i + 1]] + [sheet.items[i]]
                 else:
                     sheet.items = sheet.items[0:i] + [sheet.items[i + 1]] + [sheet.items[i]] + sheet.items[i + 2:]
+                break
+
+
+def set_as_out(widget, data, event):
+    l = len(sheet.items)
+    if l >= 2 and sheet.v_model:
+        item_name = sheet.v_model[0]['name']
+        for i in range(0, l - 1):
+            if sheet.items[i]['name'] == item_name:
+                sheet.items[i]['in/out'] = 'Output'
+                sheet.items = sheet.items[0:i] + sheet.items[i+1:] + [sheet.items[i]]
                 break
 
 
@@ -229,7 +245,12 @@ def hide_ld(widget, data, event):
 
 
 def add_pi(widget, data, event):
-    force_area.v_model += force_eq.v_model + "\n"
+    index = pif.get_pi_index(force_area.v_model)
+    exp = pif.format_input(force_eq.v_model, index)
+    if force_area.v_model is not None:
+        force_area.v_model += exp + "\n"
+    else:
+        force_area.v_model = exp + "\n"
     force_eq.v_model = ""
 
 
@@ -256,11 +277,12 @@ h = [{'text': 'Name', 'sortable': False, 'value': 'name'},
      {'text': 'Description', 'sortable': False, 'value': 'description'},
      {'text': 'Unit', 'sortable': False, 'value': 'unit'},
      {'text': 'Lower bound', 'sortable': False, 'value': 'lower bound'},
-     {'text': 'Upper Bound', 'sortable': False, 'value': 'upper bound'}]
-it = [{"name": "x", "description": "length", "unit": "m", "lower bound": 0.1, "upper bound": 100},
-      {"name": "y", "description": "height", "unit": "cm", "lower bound": 1, "upper bound": 1000},
-      {"name": "t", "description": "time", "unit": "s", "lower bound": 0.5, "upper bound": 10},
-      {"name": "v", "description": "speed", "unit": "m/s", "lower bound": 1, "upper bound": 50}]
+     {'text': 'Upper Bound', 'sortable': False, 'value': 'upper bound'},
+     {'text': 'Input/Output', 'sortable': False, 'value': 'in/out'}]
+it = [{"name": "x", "description": "length", "unit": "m", "lower bound": 0.1, "upper bound": 100, 'in/out': 'Input'},
+      {"name": "y", "description": "height", "unit": "cm", "lower bound": 1, "upper bound": 1000, 'in/out': 'Input'},
+      {"name": "t", "description": "time", "unit": "s", "lower bound": 0.5, "upper bound": 10, 'in/out': 'Input'},
+      {"name": "v", "description": "speed", "unit": "m/s", "lower bound": 1, "upper bound": 50, 'in/out': 'Output'}]
 
 icon_up = v.Btn(children=[v.Icon(children=["mdi-arrow-up-bold"], large=True)],
                 style_="margin : 10px",
@@ -272,9 +294,22 @@ icon_del = v.Btn(children=[v.Icon(children=["mdi-delete"], large=True)],
                  style_="margin : 10px",
                  color="red lighten-2")
 
+icon_out = v.Btn(children=["OUT"],
+                 v_on="tooltip.on",
+                 style_="margin : 10px",
+                 color="blue lighten-2",
+                 tooltip="set as output")
+tool_out = v.Tooltip(bottom=True, v_slots=[{
+        'name': 'activator',
+        'variable': 'tooltip',
+        'children': icon_out,
+        }],
+        children=['Set as output'])
+
 icon_up.on_event('click', up_item)
 icon_down.on_event('click', down_item)
 icon_del.on_event('click', del_item)
+icon_out.on_event('click', set_as_out)
 
 sheet = v.DataTable(v_model=[{'name': None}],
                     show_select=True,
@@ -282,6 +317,7 @@ sheet = v.DataTable(v_model=[{'name': None}],
                     item_key='name',
                     headers=h,
                     items=it,
+                    no_data_text="No parameter added",
                     background_color="blue lighten-3",
                     layout=widgets.Layout(flex='90 1 auto', width='auto'))
 
@@ -290,9 +326,9 @@ col2 = v.Col(children=[desc_entry, ub_entry])
 col3 = v.Col(children=[unit_entry, add_btn])
 box1 = v.Container(children=[v.Row(children=[col1, col2, col3])])
 
-action_box = widgets.VBox([icon_up, icon_down, icon_del])
+action_box = widgets.VBox([icon_up, icon_down, icon_del, tool_out])
 
-box2 = widgets.HBox([sheet, action_box])
+box2 = widgets.HBox([action_box, sheet])
 box2.layout.align_content = "center"
 box2.layout.justify_content = "space-between"
 
@@ -322,12 +358,12 @@ buck_area = v.Textarea(v_model='',
                        auto_grow=True,
                        row=15)
 
-force_buck_info = v.Alert(type="info", border="top", style_ = "margin : 5px",
+force_buck_info = v.Alert(type="info", border="top", style_="margin : 5px",
                           children=["The equation variables must have the same name as in the previous tab"]
                           )
 
 force_eq = v.TextField(v_model='', label="Type your expression here", width=300, outlined=True, class_="mx-2")
-add_pi_btn = v.Btn(children=["Add pi number"], color="orange", class_="mx-2")
+add_pi_btn = v.Btn(children=["Add pi number"], color="orange", class_="mx-2", height="55")
 add_pi_btn.on_event("click", add_pi)
 
 
@@ -342,19 +378,10 @@ force_area = v.Textarea(v_model='',
                         auto_grow=True,
                         row=6)
 
-force_buck_btn = v.Btn(children=["Complete Pi set"], color="orange", width="50%")
+force_buck_btn = v.Btn(children=["Check Pi set"], color="orange", width="50%")
 force_buck_btn.on_event('click', buckingham)
 
 box4 = v.Container(children=[v.Row(children=[force_buck_btn], justify="center")])
-
-force_buck_area = v.Textarea(v_model='',
-                             type='html',
-                             label='Force Buckingham output',
-                             background_color="orange lighten-4",
-                             readonly=True,
-                             outlined=True,
-                             auto_grow=True,
-                             row=15)
 
 auto_buck_btn = v.Btn(children=["Automatic Buckingham"], color="orange", width="50%")
 auto_buck_btn.on_event('click', buckingham)
@@ -371,7 +398,7 @@ auto_buck_area = v.Textarea(v_model='',
                             row=15)
 
 check1 = v.Checkbox(v_model="True", label="Choose this Pi set", color="green")
-check2 = v.Checkbox(label="Choose this Pi set", color="green")
+check2 = v.Checkbox(label="Choose this Pi set", color="green", disabled=True)
 check3 = v.Checkbox(label="Choose this Pi set", color="green")
 
 exp_panel = v.ExpansionPanels(v_model=[0], multiple=True, children=[
@@ -383,7 +410,6 @@ exp_panel = v.ExpansionPanels(v_model=[0], multiple=True, children=[
                                                                  force_box,
                                                                  force_area,
                                                                  box4,
-                                                                 force_buck_area,
                                                                  check2])
                                ]),
     v.ExpansionPanel(children=[v.ExpansionPanelHeader(color="orange", children=["Automatic Buckingham"]),

@@ -18,7 +18,7 @@ def save(items, file_name):
     wrt = ""
     for item in items:
         wrt += item["name"] + "|" + item["description"] + "|" + item["unit"] + "|"
-        wrt += str(item["lower bound"]) + "|" + str(item["upper bound"]) + "\n"
+        wrt += str(item["lower bound"]) + "|" + str(item["upper bound"]) + "|" + item["in/out"] + "\n"
     f.write(wrt)
     f.close()
 
@@ -39,6 +39,7 @@ def load(f_name):
         else:
             dic["lower bound"] = float(items[3])
         dic["upper bound"] = float(items[4])
+        dic["in/out"] = items[5]
         data.append(dic)
     f.close()
     return data
