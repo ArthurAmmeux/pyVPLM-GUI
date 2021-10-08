@@ -228,6 +228,11 @@ def hide_ld(widget, data, event):
         dialog2.v_model = False
 
 
+def add_pi(widget, data, event):
+    force_area.v_model += force_eq.v_model + "\n"
+    force_eq.v_model = ""
+
+
 # -----------Physical Quantities Tab-------------
 
 name_entry = v.TextField(label="Name", v_model='', outlined=True)
@@ -321,12 +326,15 @@ force_buck_info = v.Alert(type="info", border="top", style_ = "margin : 5px",
                           children=["The equation variables must have the same name as in the previous tab"]
                           )
 
-force_eq = v.TextField(label="Type your expression here", width=300, outlined=True, class_="mx-2")
-force_eq_btn = v.Btn(children=["Add pi number"], color="orange", class_="mx-2")
+force_eq = v.TextField(v_model='', label="Type your expression here", width=300, outlined=True, class_="mx-2")
+add_pi_btn = v.Btn(children=["Add pi number"], color="orange", class_="mx-2")
+add_pi_btn.on_event("click", add_pi)
 
-force_box = v.Container(justify="space-between", children=[v.Row(children=[force_eq, force_eq_btn])])
 
-force_area = v.Textarea(label="Forced Pi numbers",
+force_box = v.Container(justify="space-between", children=[v.Row(children=[force_eq, add_pi_btn])])
+
+force_area = v.Textarea(v_model='',
+                        label="Forced Pi numbers",
                         outlined=True,
                         background_color="orange lighten-4",
                         readonly=True,
