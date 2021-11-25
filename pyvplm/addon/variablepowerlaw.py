@@ -5,6 +5,9 @@ Addon module fitting variable power law response surface on dimensionless parame
 
 # -------[Import necessary packages]--------------------------------------------
 import os
+
+import matplotlib.pyplot as plt
+
 import pyvplm
 
 path = os.path.abspath(pyvplm.__file__)
@@ -322,7 +325,7 @@ def buckingham_theorem(parameter_set, track=False):
                 pi_list.append(expression)
             # Print results
             if track:
-                expression = "Choosen repetitive set is: {"
+                expression = "Chosen repetitive set is: {"
                 for index in range(len(pivot_points)):
                     if index != len(pivot_points) - 1:
                         expression += parameter_list[pivot_points[index]] + ", "
@@ -573,6 +576,7 @@ def force_buckingham(parameter_set, *pi_list):
                     "pi(s) expression contains inapropriate operand: '=', '<', '>', or '+'."
                 )
             # Replace exponent expression
+            # Replaced \cdot because it was unrecognized
             expression = expression.replace("^", "**")
             parameter_list = []
             list_change = True
@@ -1037,7 +1041,10 @@ def regression_models(doe, elected_pi0, order, **kwargs):
                   * **ymax_axis** (*float*): set y-axis maximum value representing relative error, 100=100% (default value)
                   * **log_space** (*bool*): define if polynomial regression should be performed within logarithmic space (True) or linear (False)
                   * **latex** (*bool*): define if graph legend font should be latex (default is False) - may cause some issues if used
-        
+                  * **plots** (*bool*): overrules test_mode and allows to show plots
+                  * **force_choice** (*int*): forces the choice of the regression criteria (1 => max(abs(error)), ... )
+                  * **removed_pi** (*list*): list of indexes of removed pi to be ignored
+                  * **eff_pi0** (*int*): effective pi0 index in the modfied DOE (used only with remoced_pi)
         Returns
         -------
         models: dict of [1*4] tuple
@@ -1079,7 +1086,7 @@ def regression_models(doe, elected_pi0, order, **kwargs):
         # Check values
         if elected_pi0[0:2] != "pi":
             raise SyntaxError("elected_pi0 should be of the form pik with k an int.")
-        elected_pi0 = int(elected_pi0[2 : len(elected_pi0)])
+        elected_pi0 = int(elected_pi0[2:])
         if (elected_pi0 < 1) or (elected_pi0 > len(doe)):
             raise ValueError("elected_pi0 should be >=1 and <={}.".format(len(doe)))
         if order < 1:
@@ -1091,9 +1098,14 @@ def regression_models(doe, elected_pi0, order, **kwargs):
         log_space = True
         ymax_axis = 100
         test_mode = False
+        show_plots = False
         latex = False
+        force_choice = 0
+        removed_pi = []
+        eff_elected_pi0 = elected_pi0
         for key, value in kwargs.items():
-            if not (key in ["log_space", "ymax_axis", "test_mode", "latex"]):
+            if not (key in ["log_space", "ymax_axis", "test_mode", "plots", "latex", "force_choice", "removed_pi",
+                            "eff_pi0"]):
                 raise KeyError("unknown argument " + key)
             elif key == "ymax_axis":
                 if isinstance(value, int) or isinstance(value, float):
@@ -1113,33 +1125,67 @@ def regression_models(doe, elected_pi0, order, **kwargs):
                     test_mode = value
                 else:
                     raise ValueError("test_mode should be a boolean")
+            elif key == "plots":
+                if isinstance(value, bool):
+                    show_plots = value
+                else:
+                    raise ValueError("test_mode should be a boolean")
             elif key == "latex":
                 if isinstance(value, bool):
                     latex = value
                 else:
                     raise ValueError("latex should be a boolean")
+            elif key == "force_choice":
+                if isinstance(value, int):
+                    force_choice = value
+                else:
+                    raise ValueError("force_choice should be an int")
+            elif key == "removed_pi":
+                if isinstance(value, list):
+                    removed_pi = value
+                else:
+                    raise ValueError("removed_pi should be a list")
+            elif key == "eff_pi0":
+                if isinstance(value, int):
+                    eff_elected_pi0 = value
+                else:
+                    raise ValueError("eff_pi0 should be an int")
         # Adapt X if necessary and calculate normal centered values
         X_doe = numpy.log10(doe) if log_space else doe
         # Extract chosen Y values
-        Y = numpy.copy(X_doe[:, elected_pi0 - 1])
-        X_doe = numpy.delete(X_doe, elected_pi0 - 1, 1)
+        Y = numpy.copy(X_doe[:, eff_elected_pi0 - 1])
+        X_doe = numpy.delete(X_doe, eff_elected_pi0 - 1, 1)
         # Create complete labelling and calculate DoE
         poly_feature = PolynomialFeatures(degree=order, include_bias=False)
         X = poly_feature.fit_transform(X_doe)
-        term_names = poly_feature.get_feature_names()
+        term_names = poly_feature.get_feature_names_out()
         labels = [""]
         for index_of_term, term in enumerate(term_names):
-            for k in range(numpy.shape(X)[1] + 1):
-                if k == elected_pi0 - 1:
-                    continue
-                elif k > elected_pi0 - 1:
-                    delta = 1
-                else:
+            if removed_pi:
+                for k in range(numpy.shape(X)[1] + 1):
                     delta = 0
-                if log_space:
-                    term = term.replace("x" + str(k - delta), "log(pi" + str(k + 1) + ")")
-                else:
-                    term = term.replace("x" + str(k - delta), "pi" + str(k + 1))
+                    for i in removed_pi:
+                        if k + delta >= i:
+                            delta += 1
+                    delta_2 = 0
+                    if k > eff_elected_pi0 - 1:
+                        delta_2 = 1
+                    if log_space:
+                        term = term.replace("x" + str(k - delta_2), "log(pi" + str(k + delta + 1) + ")")
+                    else:
+                        term = term.replace("x" + str(k - delta_2), "pi" + str(k + delta + 1))
+            else:
+                for k in range(numpy.shape(X)[1] + 1):
+                    if k == elected_pi0 - 1:
+                        continue
+                    elif k > elected_pi0 - 1:
+                        delta = 1
+                    else:
+                        delta = 0
+                    if log_space:
+                        term = term.replace("x" + str(k - delta), "log(pi" + str(k + 1) + ")")
+                    else:
+                        term = term.replace("x" + str(k - delta), "pi" + str(k + 1))
             term = term.replace("^", "**")
             term = term.replace(" ", "*")
             labels.append(term)
@@ -1168,13 +1214,15 @@ def regression_models(doe, elected_pi0, order, **kwargs):
                 except:
                     choice = 5
         else:
-            choice = 2
+            if force_choice == 0:
+                choice = 2
+            else:
+                choice = force_choice
         # Perform a first "quick" regression adding terms one by one to evaluate slope of criteria curves
         ordered_labels = [""]
-        models = {}
         while len(ordered_labels) < len(labels):
             X_remaining = copy.deepcopy(X)
-            X_remaining.drop(columns=ordered_labels)
+            X_remaining = X_remaining.drop(columns=ordered_labels)
             available_labels = X_remaining.columns.values.tolist()
             best_criteria = float("Inf")
             best_label = available_labels[0]
@@ -1214,7 +1262,7 @@ def regression_models(doe, elected_pi0, order, **kwargs):
         models = {}
         for idx in range(numpy.shape(X.values)[1]):
             error_test = numpy.array([])
-            values = X.values[:, 0 : idx + 1]
+            values = X.values[:, 0: idx + 1]
             for test_idx in range(numpy.shape(values)[0]):
                 coeff, _, _, _ = scipy.linalg.lstsq(
                     numpy.delete(values, test_idx, 0), numpy.delete(Y, test_idx, 0)
@@ -1246,7 +1294,7 @@ def regression_models(doe, elected_pi0, order, **kwargs):
                 if coeff[i] < 0:
                     if labels[i] == "":
                         expression = (
-                            expression[0 : len(expression) - 1] + "{:.5f}".format(coeff[i]) + "+"
+                            expression[0: len(expression) - 1] + "{:.5f}".format(coeff[i]) + "+"
                         )
                     else:
                         expression = (
@@ -1260,7 +1308,7 @@ def regression_models(doe, elected_pi0, order, **kwargs):
                         expression += "{:.5f}".format(coeff[i]) + labels[i] + "+"
                     else:
                         expression += "{:.5f}*".format(coeff[i]) + labels[i] + "+"
-            expression = expression[0 : len(expression) - 1]
+            expression = expression[0: len(expression) - 1]
             # Calculate max and average absolute error and average and sigma error on train data
             error_average = numpy.mean(error_train)
             error_sigma = numpy.std(error_train)
@@ -1306,9 +1354,9 @@ def regression_models(doe, elected_pi0, order, **kwargs):
             plot.rc("text", usetex=True)
             plot.rc("font", family="serif")
         # Start to plot the graph with indicators
-        if not (test_mode):
+        if not test_mode or show_plots:
             x = numpy.array(range(len(models.keys()))).astype(int) + 1
-            fig, axs = plot.subplots(4, sharex=True, gridspec_kw={"hspace": 0.05}, figsize=(8, 10))
+            fig, axs = plot.subplots(4, sharex=True, gridspec_kw={"hspace": 0.05}, figsize=(14, 10))
             # Plot maximum absolute relative error
             axs[0].plot(x, numpy.array(abs_error_max_train), "k-*", label="Fitting set")
             axs[0].plot(x, numpy.array(abs_error_max_test), "r-*", label="Validation set")
@@ -1347,7 +1395,7 @@ def regression_models(doe, elected_pi0, order, **kwargs):
             axs[3].set_xlabel("Model terms number", fontsize=16)
             axs[3].grid(True)
             majors = range(len(x) + 1)
-            majors = ["$n^o" + str(majors[i]) + "$" for i in range(len(majors))]
+            majors = ["$" + str(majors[i]) + "$" for i in range(len(majors))]
             axs[3].xaxis.set_major_locator(ticker.MultipleLocator(1))
             axs[3].xaxis.set_major_formatter(ticker.FixedFormatter(majors))
         try:
@@ -1398,8 +1446,11 @@ def concatenate_expression(expression, pi_list):
             >>> In [2]: pi_list = ['\pi_1','\pi_2','\pi_3']
         adapt expression:
             concatenate_expression(expression, pi_list)
-            
+
     """
+    pi_numbers = []
+    for pi in pi_list:
+        pi_numbers.append(int(pi[2:]))
     if expression[0:4] == "log(":
         expression = expression.split("=")
         new_expression = expression[0]
@@ -1409,13 +1460,13 @@ def concatenate_expression(expression, pi_list):
         expression = expression.replace("+", "#+")
         expression = expression.replace("-", "#-")
         if expression[0] == "#":
-            expression = expression[1 : len(expression)]
+            expression = expression[1:]
         expression = expression.split("#")
         power_list = {}
         for i in range(len(pi_list)):
             if len(expression) == 0:
                 break
-            pi_name = "log(pi" + str(i + 1) + ")"
+            pi_name = "log(pi" + str(pi_numbers[i]) + ")"
             if new_expression == pi_name:
                 new_expression = "$" + pi_list[i] + "="
                 continue
@@ -1426,18 +1477,18 @@ def concatenate_expression(expression, pi_list):
                     keep[idx] = False
                     idx = local_expression.index(pi_name)
                     if idx + len(pi_name) != len(local_expression):
-                        if local_expression[idx + len(pi_name) : idx + len(pi_name) + 2] == "**":
+                        if local_expression[idx + len(pi_name): idx + len(pi_name) + 2] == "**":
                             try:
                                 exponent = int(
                                     local_expression[
                                         idx
                                         + len(pi_name)
-                                        + 2 : local_expression.index("*", idx + len(pi_name) + 2)
+                                        + 2: local_expression.index("*", idx + len(pi_name) + 2)
                                     ]
                                 )
                             except:
                                 exponent = int(
-                                    local_expression[idx + len(pi_name) + 2 : len(local_expression)]
+                                    local_expression[idx + len(pi_name) + 2: len(local_expression)]
                                 )
                         else:
                             exponent = 1
@@ -1468,7 +1519,7 @@ def concatenate_expression(expression, pi_list):
             expression = expression.tolist()
         new_expression += "10^{" + str(expression[0]) + "}"
         for i in range(len(pi_list)):
-            pi_name = "log(pi" + str(i + 1) + ")"
+            pi_name = "log(pi" + str(pi_numbers[i]) + ")"
             if pi_name in power_list.keys():
                 power_list[pi_name] = power_list[pi_name].replace("+-", "-")
                 new_expression += " \cdot " + pi_list[i] + "^{" + power_list[pi_name] + "}"
@@ -1476,7 +1527,7 @@ def concatenate_expression(expression, pi_list):
     else:
         new_expression = expression
         for i in range(len(pi_list)):
-            pi_name = "pi" + str(i + 1)
+            pi_name = "pi" + str(pi_numbers[i])
             new_expression = new_expression.replace(pi_name, pi_list[i])
         new_expression = new_expression.replace("**", "^")
         new_expression = new_expression.replace("*", " \cdot ")
@@ -1931,25 +1982,30 @@ def perform_regression(doePI, models, chosen_model, **kwargs):
         **kwargs: additional argumens 
                   * **pi_list** (*list* of *str*): the name/expression of pi (default is pi1, pi2, pi3...)
                   * **latex** (*bool*): define if graph legend font should be latex (default is False) - may cause some issues if used
-        
+                  * **removed_pi** (**list**): list of indexes of removed pi numbers
+                  * **max_pi_nb** (*int*): maximum potential pi number that could appear in any expression (only useful if some pi mubers have been removed)
+                  * **eff_pi_0** (*int*): effective pi0 index in pi_list (used only if some pi numbers have been removed)
         Example
         -------
         to define regression models refer to: :func:`~pyvplm.addon.variablepowerlaw.regression_models`
         
         then perform regression on model n°8 to show detailed results on model fit and error:
-                >>> In[24]: perform_regression(doePI, models, choosen_model=8)
+                >>> In[24]: perform_regression(doePI, models, chosen_model=8)
                 
                 .. image:: ../source/_static/Pictures/variablepowerlaw_perform_regression1.png
         
     """
-    if isinstance(doePI, numpy.ndarray) and isinstance(choosen_model, int):
+    if isinstance(doePI, numpy.ndarray) and isinstance(chosen_model, int):
         test_mode = False
         pi_list = []
         latex = False
+        max_pi_nb = 0
+        removed_pi = []
+        eff_pi0 = -1
         for i in range(numpy.shape(doePI)[1]):
             pi_list.append("\pi_{" + str(i + 1) + "}")
         for key, value in kwargs.items():
-            if not (key in ["pi_list", "test_mode", "latex"]):
+            if not (key in ["pi_list", "test_mode", "latex", "max_pi_nb", "removed_pi", "eff_pi0"]):
                 raise KeyError("unknown argument " + key)
             elif key == "pi_list":
                 if isinstance(value, list):
@@ -1972,9 +2028,24 @@ def perform_regression(doePI, models, chosen_model, **kwargs):
                     latex = value
                 else:
                     raise TypeError("latex should be a boolean.")
-        # Check that choosen model is available
+            elif key == "max_pi_nb":
+                if isinstance(value, int):
+                    max_pi_nb = value
+                else:
+                    raise TypeError("max_pi_nb should be an int.")
+            elif key == "removed_pi":
+                if isinstance(value, list):
+                    removed_pi = value
+                else:
+                    raise TypeError("removed_pi should be an list.")
+            elif key == "eff_pi0":
+                if isinstance(value, int):
+                    eff_pi0 = value
+                else:
+                    raise TypeError("eff_pi0 should be an int.")
+        # Check that chosen model is available
         if chosen_model <= 0:
-            raise ValueError("choosen_model should be >=1.")
+            raise ValueError("chosen_model should be >=1.")
         max_value = 0
         for key in models.keys():
             try:
@@ -1982,11 +2053,11 @@ def perform_regression(doePI, models, chosen_model, **kwargs):
             except:
                 break
         if chosen_model > max_value:
-            raise KeyError("choosen_model should be <={}.".format(max_value))
+            raise KeyError("chosen_model should be <={}.".format(max_value))
         # Print alternative model expression and error repartition
         if not (test_mode):
-            print("\nElected model for regression is n°{}:".format(choosen_model))
-        expression = str(models[choosen_model][0])
+            print("\nElected model for regression is n°{}:".format(chosen_model))
+        expression = str(models[chosen_model][0])
         try:
             expression_latex = concatenate_expression(expression, pi_list)
             if not (test_mode):
@@ -2002,7 +2073,7 @@ def perform_regression(doePI, models, chosen_model, **kwargs):
         except:
             pass
         # Adapt expression for calculation
-        elected_pi0 = expression[0 : expression.find("=")]
+        elected_pi0 = expression[0: expression.find("=")]
         elected_pi0 = elected_pi0.replace("log(", "")
         elected_pi0 = elected_pi0.replace(")", "")
         elected_pi0 = elected_pi0.replace(" ", "")
@@ -2014,23 +2085,30 @@ def perform_regression(doePI, models, chosen_model, **kwargs):
             plot.rc("font", family="serif")
         # Plot regression values in pi0 vs. f(pi1, pi2,...) graph with y=x reference and error repartition histogram
         idx = 0
-        for coeff in models[choosen_model][1]:
+        for coeff in models[chosen_model][1]:
             idx = expression.find("{:.5f}".format(coeff), idx)
             expression = (
                 expression[0:idx]
                 + str(coeff)
-                + expression[idx + len("{:.5f}".format(coeff)) - 1 : len(expression)]
+                + expression[idx + len("{:.5f}".format(coeff)) - 1: len(expression)]
             )
             idx = idx + len("{:.5f}".format(coeff)) - 1
-        expression1 = expression[expression.find("=") + 1 : len(expression)]
-        expression2 = expression[0 : expression.find("=")]
+        expression1 = expression[expression.find("=") + 1: len(expression)]
+        expression2 = expression[0: expression.find("=")]
         log_space = True if expression2.find("log") != -1 else False
         expression1 = expression1.replace("log", "numpy.log10")
         expression2 = expression2.replace("log", "numpy.log10")
         fig, axs = plot.subplots(1, 2, tight_layout=True)
-        for idx in range(numpy.shape(doePI)[1]):
-            expression1 = expression1.replace("pi" + str(idx + 1), "doePI[:,{}]".format(idx))
-            expression2 = expression2.replace("pi" + str(idx + 1), "doePI[:,{}]".format(idx))
+        # If used by the GUI
+        if eff_pi0 != -1:
+            fig.set_size_inches(16, 10)
+        for idx in range(max(numpy.shape(doePI)[1], max_pi_nb)):
+            delta = 0
+            for i in removed_pi:
+                if idx > i:
+                    delta += 1
+            expression1 = expression1.replace("pi" + str(idx + 1), "doePI[:,{}]".format(idx - delta))
+            expression2 = expression2.replace("pi" + str(idx + 1), "doePI[:,{}]".format(idx - delta))
         try:
             Y_reg = 10 ** eval(expression1) if log_space else eval(expression1)
             Y = 10 ** eval(expression2) if log_space else eval(expression2)
@@ -2047,12 +2125,14 @@ def perform_regression(doePI, models, chosen_model, **kwargs):
         axs[0].grid(True)
         axs[0].set_title("Regression model", fontsize=18)
         elected_pi0 = int(elected_pi0.replace("pi", "")) - 1
+        if eff_pi0 != -1:
+            elected_pi0 = eff_pi0
         axs[0].set_xlabel("$" + pi_list[elected_pi0] + "$", fontsize=16)
         y_label = "$" + pi_list[elected_pi0] + " \simeq f("
         for i in range(len(pi_list)):
             if i != elected_pi0:
                 y_label += pi_list[i] + ","
-        y_label = y_label[0 : len(y_label) - 1] + ")$"
+        y_label = y_label[0: len(y_label) - 1] + ")$"
         axs[0].set_ylabel(y_label, fontsize=18)
         error = ((numpy.array(Y_reg) - numpy.array(Y)) * (1 / numpy.array(Y)) * 100).tolist()
         n_bins = max(1, int(len(error) / 5))
@@ -2092,14 +2172,15 @@ def perform_regression(doePI, models, chosen_model, **kwargs):
             plot.show()
         # De-activate latex render on plot
         plot.rc("text", usetex=False)
-        plot.rc("font", family="sans-serif")
+        plot.rc("font", family="sans-serif ")
         # Unable warnings
         logging.captureWarnings(False)
+        return expression, expression_latex
     else:
         if not (isinstance(doePI, numpy.ndarray)):
             raise TypeError("doePI should be numpy array")
         else:
-            raise TypeError("choosen_model should be an integer")
+            raise TypeError("chosen_model should be an integer")
 
 
 # -------[Define function to PI sensitivity to design drivers]------------------
@@ -2112,7 +2193,7 @@ def pi_sensitivity(pi_set, doePI, useWidgets, **kwargs):
                 Set of dimensionless parameters
                  
         doePI: numpy.array 
-               DOE of the complete pi_set (except pi0)
+               DOE of the complete pi_set
         
         useWidgets: bool
                     Boolean to choose if widgets displayed (set to True within Jupyther Notebook)
@@ -2155,21 +2236,39 @@ def pi_sensitivity(pi_set, doePI, useWidgets, **kwargs):
     """
     if isinstance(useWidgets, bool):
         test_mode = False
+        latex = False
+        pi0_list = [list(pi_set.dictionary.keys())[0]]
+        piN_list = list(pi_set.dictionary.keys())[1: len(list(pi_set.dictionary.keys()))]
         for key, value in kwargs.items():
             if key == "test_mode":
                 if isinstance(value, bool):
                     test_mode = value
                 else:
                     raise TypeError("test_mode should be boolean")
+            if key == "latex":
+                if isinstance(value, bool):
+                    latex = value
+                else:
+                    raise TypeError("latex should be boolean")
+            if key == "pi0":
+                if isinstance(value, list):
+                    pi0_list = value
+                else:
+                    raise TypeError("pi0 should be a list")
+            if key == "piN":
+                if isinstance(value, list):
+                    piN_list = value
+                else:
+                    raise TypeError("piN should be a list")
         if useWidgets:
             pi_list = []
             for pi in pi_set.dictionary.keys():
                 pi_list.append(pi.replace("pi", "$\pi_{") + "}$")
-            pi0_list = [list(pi_set.dictionary.keys())[0]]
-            piN_list = list(pi_set.dictionary.keys())[1 : len(list(pi_set.dictionary.keys()))]
             axes, plot, _, _ = pi_sensitivity_sub(
-                pi_set, doePI, pi0=pi0_list, piN=piN_list, figwidth=16
+                pi_set, doePI, pi0=pi0_list, piN=piN_list, figwidth=16, latex=True
             )
+            if latex:
+                plot.rc("text", usetex=True)
             checkboxes1 = []
             checkboxes2 = []
             cb_container1 = widgets.HBox()
@@ -2204,7 +2303,7 @@ def pi_sensitivity(pi_set, doePI, useWidgets, **kwargs):
             tab.set_title(2, "Graph parameters")
             menu = VBox(children=[tab, button])
             display(menu)
-            if not (test_mode):
+            if not test_mode:
                 plot.show()
             reference_list = list(pi_set.dictionary.keys())
 
@@ -2237,7 +2336,9 @@ def pi_sensitivity(pi_set, doePI, useWidgets, **kwargs):
                     zero_ymin=zero_ymin_value,
                     xlabel_size=fontsize,
                 )
-                if not (test_mode):
+                if latex:
+                    plot.rc("text", usetex=True)
+                if not test_mode:
                     plot.show()
 
             button.on_click(on_button_clicked)
@@ -2247,7 +2348,7 @@ def pi_sensitivity(pi_set, doePI, useWidgets, **kwargs):
                 plot.savefig(temp_path + "pi_sensitivity.pdf", dpi=1200, format="pdf")
             except:
                 pass
-            if not (test_mode):
+            if not test_mode:
                 plot.show()
                 print("MCC - Maximum Correlation Coefficient between Pearson and Spearman")
                 print("alpha - Relative standard deviation (on dimensionless parameter)")
@@ -2284,14 +2385,14 @@ def pi_sensitivity_sub(pi_set, doePI, **kwargs):
                 if isinstance(value, str):
                     try:
                         y_index = pi_list.index(value)
-                    except:
+                    except Exception:
                         raise ValueError("pi0 not in pi_set")
                 elif isinstance(value, list):
                     y_index = []
                     for pi0_value in value:
                         try:
                             y_index.append(pi_list.index(pi0_value))
-                        except:
+                        except Exception:
                             raise ValueError("some pi0 values not in pi_set")
                 else:
                     raise TypeError("pi0 should be a string or a list of string")
@@ -2369,9 +2470,11 @@ def pi_sensitivity_sub(pi_set, doePI, **kwargs):
             plot.rc("font", family="serif")
         # Plot graphs
         fig, axes = plot.subplots(
-            nrows=len(y_index), ncols=len(x_index), sharex=False, sharey=False
+            nrows=len(y_index), ncols=len(x_index), sharex=False, sharey=False,  squeeze=False
         )
-        fig.set_size_inches(min(figwidth, 3 * len(x_index)), 3 * len(y_index))
+        if len(y_index) == 1 or len(x_index) == 1:
+            axes = numpy.reshape(axes, -1)
+        fig.set_size_inches(min(figwidth, 5 * len(x_index)), 5 * len(y_index))
         for y_i in range(len(y_index)):
             for x_i in range(len(x_index)):
                 if len(y_index) == 1:
@@ -2396,7 +2499,7 @@ def pi_sensitivity_sub(pi_set, doePI, **kwargs):
                     axes[axis_name].set_ylabel(latex_pi_list[y_index[y_i]], fontsize=18)
                 else:
                     axes[axis_name].set_yticklabels([])
-                if y_i == y_index[-1]:
+                if y_i == len(y_index) - 1:
                     expression = (
                         "$\\frac{"
                         + pi_list[x_index[x_i]].replace("pi", "\pi_{")
@@ -2404,7 +2507,7 @@ def pi_sensitivity_sub(pi_set, doePI, **kwargs):
                         + pi_list[x_index[x_i]].replace("pi", "\pi_{")
                         + "}}}"
                     )
-                    if not (problem):
+                    if not problem:
                         expression += " \\mid " + latex_pi_list[x_index[x_i]].replace("$", "") + "$"
                     axes[axis_name].set_xlabel(expression, fontsize=xlabel_size)
                 else:
@@ -2455,7 +2558,10 @@ def pi_sensitivity_sub(pi_set, doePI, **kwargs):
         for x_i in range(len(x_index)):
             for y_i in range(len(y_index)):
                 current_IF = numpy.absolute(impact_matrix[y_i, x_i])
-                blue = max(0, min(1, 1 - (current_IF - min_IF) / (max_IF - min_IF)))
+                if max_IF != min_IF:
+                    blue = max(0, min(1, 1 - (current_IF - min_IF) / (max_IF - min_IF)))
+                else:
+                    blue = 1
                 if len(y_index) == 1:
                     axis_name = x_i
                 elif len(x_index) == 1:
@@ -2610,7 +2716,7 @@ def pi_dependency(pi_set, doePI, useWidgets, **kwargs):
         **kwargs: additional argumens 
                   * **x_list** (*list* of *str*): name of the different pi1, pi2,... to be defined as x-axis (default is all)
                   * **y_list** (*list* of *str*): name of the different pi1, pi2,... to be defined as y-axis (default is all)
-                  * **order** (*int*): the order choosen for power-law or polynomial regression model (default is 2)
+                  * **order** (*int*): the order chosen for power-law or polynomial regression model (default is 2)
                   * **threshold** (*float*): in ]0,1[ the lower limit to consider regression for plot  (default is 0.9)
                   * **figwidth** (*int*): change figure width (default is 16 in widgets mode)
                   * **xlabel_size** (*int*): set x-axis label font size (default is 16)
@@ -2627,28 +2733,60 @@ def pi_dependency(pi_set, doePI, useWidgets, **kwargs):
     """
     if isinstance(useWidgets, bool):
         test_mode = False
+        x_list_ = []
+        y_list_ = []
         for key, value in kwargs.items():
             if key == "test_mode":
                 if isinstance(value, bool):
                     test_mode = value
                 else:
                     raise TypeError("test_mode should be boolean")
+            if key == "x_list":
+                if isinstance(value, list):
+                    x_list_ = value
+                else:
+                    raise TypeError("x_list should be a list")
+            if key == "y_list":
+                if isinstance(value, list):
+                    y_list_ = value
+                else:
+                    raise TypeError("y_list should be a list")
         if useWidgets:
             pi_list = []
             for pi in pi_set.dictionary.keys():
                 pi_list.append(pi.replace("pi", "$\pi_{") + "}$")
-            x_list = pi_list
-            y_list = pi_list
-            _, _, _, plot = pi_dependency_sub(pi_set, doePI, order=2, threshold=0.9, figwidth=16)
+            x_list = [""]*len(x_list_)
+            if x_list_:
+                for i in range(len(x_list_)):
+                    x_list[i] = x_list_[i].replace("pi", "$\pi_{") + "}$"
+            else:
+                x_list = pi_list
+            y_list = [""]*len(y_list_)
+            if y_list_:
+                for i in range(len(y_list_)):
+                    y_list[i] = y_list_[i].replace("pi", "$\pi_{") + "}$"
+            else:
+                y_list = pi_list
+            _, _, _, plot = pi_dependency_sub(pi_set, doePI, order=2, threshold=0.9, figwidth=16, x_list=x_list_,
+                                              y_list=y_list_)
             checkboxes1 = []
             checkboxes2 = []
             cb_container1 = widgets.HBox()
             cb_container2 = widgets.HBox()
             container3 = widgets.HBox()
-            for pi_parameter in range(numpy.shape(doePI)[1]):
+            if x_list_:
+                max_range_x = len(x_list)
+            else:
+                max_range_x = numpy.shape(doePI)[1]
+            for pi_parameter in range(max_range_x):
                 checkboxes1.append(
                     widgets.Checkbox(description=x_list[pi_parameter], value=True, width=90)
                 )
+            if y_list_:
+                max_range_y = len(y_list)
+            else:
+                max_range_y = numpy.shape(doePI)[1]
+            for pi_parameter in range(max_range_y):
                 checkboxes2.append(
                     widgets.Checkbox(description=y_list[pi_parameter], value=True, width=90)
                 )
@@ -2735,10 +2873,10 @@ def pi_dependency_sub(pi_set, doePI, **kwargs):
         x_list = list(pi_set.dictionary.keys())
         y_list = list(pi_set.dictionary.keys())
         pi_list = list(pi_set.dictionary.keys())
-        order = 2
+        order = 1
         threshold = 0.9
         figwidth = float("Inf")
-        xlabel_size = 16
+        xlabel_size = 18
         for key, value in kwargs.items():
             if not (
                 key
@@ -2810,8 +2948,8 @@ def pi_dependency_sub(pi_set, doePI, **kwargs):
         r2_matrix = numpy.zeros((len(y_list), len(x_list)))
         regType_matrix = numpy.zeros((len(y_list), len(x_list))).astype(str)
         coeff_matrix = numpy.zeros((len(y_list), len(x_list)), dtype=(float, order + 1))
-        fig, axes = plot.subplots(nrows=len(y_list), ncols=len(x_list), sharex=False, sharey=False)
-        fig.set_size_inches(min(figwidth, 3 * len(x_list)), 3 * len(y_list))
+        fig, axes = plot.subplots(nrows=len(y_list), ncols=len(x_list), sharex=False, sharey=False, squeeze=False)
+        fig.set_size_inches(min(figwidth, 5 * len(x_list)), 5 * len(y_list))
         # Write pi_list and x-y index
         xaxis_index = []
         latex_pi_list, problem = latex_pi_expression(pi_set, [])
@@ -3010,7 +3148,7 @@ def pi_dependency_sub(pi_set, doePI, **kwargs):
                             va="center",
                             fontsize=label_size,
                         )
-                # Highlight best model up/down diag in scatter plot (if scatter plot choosen)
+                # Highlight best model up/down diag in scatter plot (if scatter plot chosen)
                 if (
                     xy_identical
                     and (yaxis_i > xaxis_i)
@@ -3023,7 +3161,7 @@ def pi_dependency_sub(pi_set, doePI, **kwargs):
                         axes[xaxis_i, yaxis_i].set_facecolor("xkcd:light beige")
                     else:
                         axes[yaxis_i, xaxis_i].set_facecolor("xkcd:light beige")
-                # Highlight best model in x-y plot (if scatter plot not choosen)
+                # Highlight best model in x-y plot (if scatter plot not chosen)
                 if not (xy_identical) and xaxis_i == len(xaxis_index) - 1:
                     if numpy.amax(r2_matrix[yaxis_i, :]) >= threshold:
                         axes[yaxis_i, numpy.argsort(-1 * r2_matrix[yaxis_i, :])[0]].set_facecolor(
@@ -3088,7 +3226,7 @@ def pi_nonlinear(pi_set, doe, elected_pi0, non_linear_pi_list, order, **kwargs):
                   * **ymax_axis** (*float*): set y-axis maximum value representing relative error, 100=100% (default value)
                   * **log_space** (*bool*): define if polynomial regression should be performed within logarithmic space (True) or linear (False) default is logarithmic
                   * **latex** (*bool*): define if graph legend font should be latex (default is False) - may cause some issues if used
-                  * **starting_points** (*int*): set the number of starting points choosen for optimisation (default is 10**(2*len(non_linear_pi_list)))
+                  * **starting_points** (*int*): set the number of starting points chosen for optimisation (default is 10**(2*len(non_linear_pi_list)))
                   * **max_iter** (*int*): set the number of optimisation maximum iterations for each starting point (default is 10**len(non_linear_pi_list))
                   * **f_tol** (*float*): set the function tolerance stopping criteria as a percentage of x0 value (default value is 0.1%)
                   * **beta_bounds** (*list(float)*): the boundaries for beta coefficient (default is [0.001, 1000.0])
@@ -3234,7 +3372,7 @@ def pi_nonlinear(pi_set, doe, elected_pi0, non_linear_pi_list, order, **kwargs):
                     + (doe_transformed[:, int(pi_name[2 : len(pi_name)]) - 1] / x[2 * idx])
                     ** x[2 * idx + 1]
                 )
-            # Perform regression in silent mode and get final result on choosen criteria
+            # Perform regression in silent mode and get final result on chosen criteria
             models = regression_models(
                 doe_transformed,
                 elected_pi0=elected_pi0,
