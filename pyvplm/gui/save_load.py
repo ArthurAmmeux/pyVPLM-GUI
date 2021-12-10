@@ -1,4 +1,5 @@
 import numpy as np
+import pandas as pd
 
 from pyvplm.core.definition import PositiveParameter, PositiveParameterSet
 
@@ -76,8 +77,27 @@ def str_to_parameter_set(inp):
     return PositiveParameterSet(*param_list)
 
 
+def nested_list_to_list(n_lis):
+    lis = []
+    for item in n_lis:
+        lis.append(item[0])
+    return lis
+
+
+def str_to_list(string):
+    if "[" and "]" in string:
+        string = string[1:-1]
+        spt = string.split(",")
+        lis = []
+        for f in spt:
+            lis.append(float(f))
+        return lis
+    return []
+
+
 def save(file_name, items, buck_area, force_area, auto_items, tab2_state, physical_params, pi_sets, chosen_pi_set,
-         pi_lists, chosen_pi_list, phy_const, pi_const, doe_params, doe, result, dep_check_state, reg_pi_list):
+         pi_lists, chosen_pi_list, phy_const, pi_const, doe_params, doe, result, dep_slider, dep_check_state,
+         reg_pi_list, reg_state, models):
     f = open_file(file_name)[0]
     wrt = ""
     # Physical parameters [0]
@@ -129,7 +149,7 @@ def save(file_name, items, buck_area, force_area, auto_items, tab2_state, physic
         wrt += pi_list_to_str(chosen_pi_list)
     else:
         wrt += "None"
-    wrt += "\n---\n"  # Constraints defined in the DOE tab (physical constraint TextArea content) [10]
+    wrt += "\n---\n"  # Constraints defined in the DOE tab (physical and pi constraint TextArea content) [10]
     wrt += phy_const + "\n+++\n" + pi_const
     wrt += "\n---\n"  # States of the input widgets between constraints definition and DOE calculation [11]
     wrt += doe_params[0]
@@ -159,13 +179,15 @@ def save(file_name, items, buck_area, force_area, auto_items, tab2_state, physic
             wrt += "\n"
     else:
         wrt += "None\n+++\nNone"
-    wrt += "\n---\n"  # State of the checkboxes in the Dependency tab [14]
+    wrt += "\n---\n"  # State of the checkboxes and slider in the Dependency tab [14]
     dcs = ""
     for boo in dep_check_state:
         dcs += str(boo) + "|"
     if len(dcs) > 0:
         dcs = dcs[:-1]
     wrt += dcs
+    wrt += "\n+++\n"
+    wrt += str(dep_slider)
     wrt += "\n---\n"  # Relevant pi list for the regression tab [15]
     rpl = ""
     for pi in reg_pi_list:
@@ -173,17 +195,41 @@ def save(file_name, items, buck_area, force_area, auto_items, tab2_state, physic
     if len(rpl) > 0:
         rpl = rpl[:-1]
     wrt += rpl
+    wrt += "\n---\n"  # State of the widgets in the regression tab [16]
+    wrt += reg_state[0] + "|" + reg_state[1] + "|" + str(reg_state[2]) + "|" + str(reg_state[3])
+    wrt += "\n---\n"  # Regression models [17]
+    str_models = ""
+    if models:
+        for i in range(1, len(models) - 3):
+            model_i_2 = str(nested_list_to_list(models[i][2].values.tolist()))
+            model_i_3 = str(nested_list_to_list(models[i][3].values.tolist()))
+
+            str_models += str(models[i][0]) + "\n" + str(list(models[i][1])) + "\n" + \
+                          model_i_2 + "\n" + model_i_3 + "\n|||\n"
+        str_models = str_models[:-5] + "\n+++\n"
+        str_models += str(models["max |e|"][0]) + "\n+++\n" + str(models["max |e|"][1]) + "\n+++\n"
+        str_models += str(models["ave. |e|"][0]) + "\n+++\n" + str(models["ave. |e|"][1]) + "\n+++\n"
+        str_models += str(models["ave. e"][0]) + "\n+++\n" + str(models["ave. e"][1]) + "\n+++\n"
+        str_models += str(models["sigma e"][0]) + "\n+++\n" + str(models["sigma e"][1])
+    wrt += str_models
     wrt += "\n---\n"
     f.write(wrt)
     f.close()
 
 
 def load(f_name):
-    f = open(f_name, "r")
+    try:
+        f = open(f_name, "r")
+    except FileNotFoundError:
+        try:
+            f_name = f_name.replace("\\\\", "\\")
+            f = open(f_name, "r")
+        except FileNotFoundError as e:
+            raise FileNotFoundError(e)
     data = []
     read_save = f.read()
     spt_save = read_save.split("---")
-    lines = spt_save[0].splitlines()
+    lines = spt_save[0].splitlines()  # Physical parameters [0]
     outputs = 0
 
     for line in lines:
@@ -204,16 +250,16 @@ def load(f_name):
                 outputs += 1
             data.append(dic)
 
-    buck_area = spt_save[1].strip()
+    buck_area = spt_save[1].strip()  # Buckingham TextArea content [1]
 
-    force_area = spt_save[2].strip()
+    force_area = spt_save[2].strip()  # Force Buckingham TextArea content [2]
 
-    expressions = spt_save[3].strip().splitlines()
-
+    expressions = spt_save[3].strip().splitlines()  # Automatic Buckingham DataTable content [3]
     items = []
     for i in range(len(expressions)):
-        items.append({"pi set number": i+1, "expressions": expressions[i]})
-    tab2_state_spt = spt_save[4].strip().split("#")
+        items.append({"pi set number": i + 1, "expressions": expressions[i]})
+
+    tab2_state_spt = spt_save[4].strip().split("#")  # State of the checkboxes of the Buckingham tab [4]
     if len(tab2_state_spt) != 5:
         raise ValueError
     tab2_state = []
@@ -221,43 +267,45 @@ def load(f_name):
         tab2_state.append(tab2_state_spt[i] == "True")
     tab2_state.append(int(tab2_state_spt[4]))
 
-    physical_params = str_to_parameter_set(spt_save[5])
+    physical_params = str_to_parameter_set(spt_save[5])  # Physical parameters in a PositiveParameterSet type [5]
 
     pi_sets = [None, None, []]
-    spt_sets = spt_save[6].split('+++')
+    spt_sets = spt_save[6].split('+++')  # Pi sets calculated in the buckingham tab in a PositiveParameterSet type [6]
     pi_sets[0] = str_to_parameter_set(spt_sets[0])
     pi_sets[1] = str_to_parameter_set(spt_sets[1])
     for i in range(2, len(spt_sets)):
         pi_sets[2].append(str_to_parameter_set(spt_sets[i]))
 
-    chosen_pi_set = str_to_parameter_set(spt_save[7])
+    chosen_pi_set = str_to_parameter_set(spt_save[7])  # Pi set chosen in the Buckingham tab [7]
 
     pi_lists = [[], [], []]
-    spt_lists = spt_save[8].split('+++')
+    spt_lists = spt_save[8].split('+++')  # Pi sets calculated in the buckingham tab in a list of expressions form [8]
     pi_lists[0] = str_to_pi_list(spt_lists[0])
     pi_lists[1] = str_to_pi_list(spt_lists[1])
     for i in range(2, len(spt_lists)):
         pi_lists[2].append(str_to_pi_list(spt_lists[i]))
 
-    chosen_pi_list = str_to_pi_list(spt_save[9])
+    chosen_pi_list = str_to_pi_list(spt_save[9])  # Pi list chosen in the Buckingham tab [9]
 
-    constraints = spt_save[10].split("+++")
+    constraints = spt_save[10].split("+++")  # Constraints defined in the DOE tab (physical and pi constraints) [10]
     constraints[0] = constraints[0].strip()
     constraints[1] = constraints[1].strip()
 
-    doe_params = spt_save[11].split("+++")
+    doe_params = spt_save[11].split("+++")  # States of the widgets between constraints and DOE calculation [11]
     doe_params[0] = doe_params[0].strip()
     doe_params[1] = doe_params[1].strip()
     doe_params[2] = int(doe_params[2].strip())
 
-    spt_doe = spt_save[12].split('+++')
+    spt_doe = spt_save[12].split('+++')  # Intermediate DOEs (in pi space) to be shown by the plots in the DOE tab [12]
     doe = []
     for spe_doe in spt_doe:
         doe_to_add = []
-        lines = spe_doe.splitlines()
+        lines = spe_doe.split("]\n[")
         for line in lines:
-            if "[" in line and "]" in line:
-                f_inp = line.strip()[1:-1]
+            strip_line = line.strip()
+            if strip_line:
+                f_inp = strip_line.replace("[", "")
+                f_inp = f_inp.replace("]", "")
                 row = f_inp.split()
                 doe_to_add.append(row)
         if not doe_to_add:
@@ -265,7 +313,7 @@ def load(f_name):
             break
         doe.append(np.array(doe_to_add, dtype=float))
 
-    spt_result = spt_save[13].split('+++')
+    spt_result = spt_save[13].split('+++')  # Imported result in the Result Import tab [13]
     if spt_result[0].strip() == "None":
         result_headers = [{'text': 'Measure', 'sortable': True, 'value': 'Measure'},
                           {'text': 'Parameters', 'sortable': True, 'value': 'Parameters'}]
@@ -284,22 +332,55 @@ def load(f_name):
                     item[result_headers[i]] = values[i]
                 result_items.append(item)
     result = [result_headers, result_items]
-    spt_dep_check_state = spt_save[14].strip()
+    spt_dep_check_state = spt_save[14].strip().split("+++")  # State of the checkboxes and slider in Dependency tab [14]
     dep_check_state = []
+    dep_slider = 0.9
     if spt_dep_check_state:
-        for val in spt_dep_check_state.split('|'):
+        for val in spt_dep_check_state[0].strip().split('|'):
             if val == "True":
                 dep_check_state.append(True)
             else:
                 dep_check_state.append(False)
+        dep_slider = float(spt_dep_check_state[1].strip())
 
-    spt_rpl = spt_save[15].strip().split("|")
+    spt_rpl = spt_save[15].strip().split("|")  # Relevant pi list for the regression tab [15]
     regression_pi_list = []
     for pi in spt_rpl:
         if pi == "None":
             regression_pi_list.append(None)
         else:
             regression_pi_list.append(pi)
+    reg_state = spt_save[16].strip().split("|")  # State of the widgets in the regression tab [16]
+    models = {}
+    spt_models = spt_save[17].strip().split("\n+++\n")  # Regression models [17]
+    if spt_models:
+        spt_expr = spt_models[0].split("\n|||\n")
+        for i in range(len(spt_expr)):
+            lines = spt_expr[i].splitlines()
+            expression = lines[0]
+            coeff = str_to_list(lines[1])
+            error_train = str_to_list(lines[2])
+            error_train = np.array(error_train)
+            error_train = pd.DataFrame(error_train, index=["max |e|", "ave. |e|", "ave. e", "sigma e"])
+            error_test = str_to_list(lines[3])
+            error_test = np.array(error_test)
+            error_test = pd.DataFrame(error_test, index=["max |e|", "ave. |e|", "ave. e", "sigma e"])
+            models[i + 1] = (expression, coeff, error_train, error_test)
+        abs_error_max_train = str_to_list(spt_models[1])
+        abs_error_max_test = str_to_list(spt_models[2])
+        abs_error_average_train = str_to_list(spt_models[3])
+        abs_error_average_test = str_to_list(spt_models[4])
+        error_average_train = str_to_list(spt_models[5])
+        error_average_test = str_to_list(spt_models[6])
+        error_sigma_train = str_to_list(spt_models[7])
+        error_sigma_test = str_to_list(spt_models[8])
+
+        models["max |e|"] = [abs_error_max_train, abs_error_max_test]
+        models["ave. |e|"] = [abs_error_average_train, abs_error_average_test]
+        models["ave. e"] = [error_average_train, error_average_test]
+        models["sigma e"] = [error_sigma_train, error_sigma_test]
+
     f.close()
-    return data, buck_area, force_area, items, tab2_state, physical_params, outputs, pi_sets, chosen_pi_set, pi_lists,\
-        chosen_pi_list, constraints, doe_params, doe, result, dep_check_state, regression_pi_list
+    return data, buck_area, force_area, items, tab2_state, physical_params, outputs, pi_sets, chosen_pi_set, pi_lists, \
+        chosen_pi_list, constraints, doe_params, doe, result, dep_slider, dep_check_state, regression_pi_list,\
+        reg_state, models

@@ -1,6 +1,5 @@
 # Import pyVPLM packages
-import copy
-import types
+import matplotlib
 
 from pyvplm.core.definition import PositiveParameter, PositiveParameterSet
 from pyvplm.addon import variablepowerlaw as vpl
@@ -14,8 +13,11 @@ import round_minmax as rmm
 import constant_pi as cpi
 import number_of_coeff as noc
 import dependency_plot as dpp
+import save_plots as spl
 
 # Import libs
+import copy
+import os
 import pandas as pd
 from pandas.plotting import scatter_matrix
 import plotly.graph_objects as go
@@ -24,10 +26,13 @@ import matplotlib.pyplot as plt
 import webbrowser
 import ipyfilechooser as ipf
 import time
+from datetime import datetime
 import ipywidgets as widgets
 import ipyvuetify as v
 from IPython.display import display, clear_output
 import warnings
+import seaborn as sns
+from win32gui import GetWindowRect, GetForegroundWindow
 # ------------Constants------------------------
 from text_list import TEXT_LIST as TL
 
@@ -37,6 +42,7 @@ FORBIDDEN_PARAMS = ['I', 'gamma', 'beta', 're', 'ln', 'sqrt', 'arg']
 DOE_MULTIPLIER = 10
 
 # ------------Global variables-----------------
+WORKDIR = os.path.abspath(os.getcwd())
 OUTPUTS = 0
 PHYSICAL_PARAMS = None
 OLD_PHYSICAL_PARAMS = None
@@ -47,15 +53,18 @@ PI_LISTS = [[], [], []]
 DOE_PI_LIST = []
 DOE = []
 TOTAL_DOE = pd.DataFrame()
-FIG = plt.Figure(figsize=(8, 8))
+FIG = plt.Figure()
 AX = FIG.add_subplot(111)
 RESULT_DF = pd.DataFrame()
 OLD_RESULT = pd.DataFrame()
 OLD_PI_SET = []
 RESULT_PI = np.array([])
 DEPENDENCY_CHECK_STATE = []
+OLD_DEPENDENCY_CHECK_STATE = []
 REGRESSION_PI_LIST = []
 MODELS = {}
+REGRESSIONS = []
+PI0_PI_LIST = []
 
 
 # -----------Functions--------------------------
@@ -672,16 +681,75 @@ def pint_link(widget, event, data):
     webbrowser.open_new(r"https://raw.githubusercontent.com/hgrecco/pint/master/pint/default_en.txt")
 
 
+def new_log(log, success: bool):
+    if success:
+        logs_card.class_ = logs_card.class_ + "; green--text"
+        logs_card.children = [v.Html(tag='div', children=[log], class_="text-left py-2 px-2")]
+    else:
+        logs_card.class_ = logs_card.class_ + "; red--text"
+        logs_card.children = [v.Html(tag='div', children=[log], class_="text-left py-2 px-2")]
+
+
+def choose_dir(widget, event, data):
+    global WORKDIR
+    dialog_dir.children[0].children[1].children = ["Current work directory: " + WORKDIR]
+    dialog_dir.v_model = True
+
+
+def hide_dir(chooser):
+    global WORKDIR
+    old_workdir = WORKDIR
+    spl.add_temp(old_workdir)
+    WORKDIR = fc_dir.selected
+    spl.move_temp(old_workdir, WORKDIR)
+    dialog_dir.v_model = False
+    new_log(f"Work directory: {WORKDIR}", True)
+    dir_btn.color = "green"
+    time.sleep(0.5)
+    dir_btn.color = "default"
+
+
 def save(widget, event, data):
+    widget.disabled = True
+    global WORKDIR
+    now = datetime.now()
+    dt_string = now.strftime("%d-%m-%y_%H-%M-%S")
+    file_path = WORKDIR + "\pyVPLM_" + dt_string + ".txt"
+    widget.disabled = True
+    widget.loading = True
+    if auto_buck_table.v_model and auto_buck_table.v_model[0]['pi set number'] is not None:
+        pi_set_nb = auto_buck_table.v_model[0]['pi set number']
+    else:
+        pi_set_nb = 0
+    force_state = force_buck_btn.children == [TL[11]]
+    tab2_state = [check1.v_model, check2.v_model, check3.v_model, force_state, pi_set_nb]
+    result = [[header["text"] for header in result_data.headers], result_data.items]
+    doe_params = [select_DOE.v_model, select_log.v_model, anticipated_mo_entry.v_model]
+    reg_state = [select_pi0.v_model, select_reg_criteria.v_model, model_order_entry.v_model,
+                 nb_terms_slider.v_model]
+    sl.save(file_path, sheet.items, buck_area.v_model, force_area.v_model, auto_buck_table.items, tab2_state,
+            PHYSICAL_PARAMS, PI_SETS, CHOSEN_PI_SET, PI_LISTS, CHOSEN_PI_LIST, phy_const_area.v_model,
+            pi_const_area.v_model, doe_params, DOE, result, threshold_slider.v_model, DEPENDENCY_CHECK_STATE,
+            REGRESSION_PI_LIST, reg_state, MODELS)
+    widget.disabled = False
+    new_log(f"Saved at: {file_path}", True)
+    widget.color = "green"
+    time.sleep(0.5)
+    widget.color = "default"
+
+
+def save_as(widget, event, data):
     """
     Returns Shows the save dialog
     -------
 
     """
+    global WORKDIR
+    dialog.children[0].children[1].children = ["Current work directory: " + WORKDIR]
     dialog.v_model = True
 
 
-def hide_sd(widget, event, data):
+def hide_save_as(widget, event, data):
     """
     Parameters
     ----------
@@ -691,8 +759,10 @@ def hide_sd(widget, event, data):
     -------
 
     """
-    file_path = fc_save.selected
-    if file_path:
+    global WORKDIR
+    save_as_tf.error_messages = ""
+    if save_as_tf.v_model.strip():
+        file_path = WORKDIR + "\\" + save_as_tf.v_model + ".txt"
         widget.disabled = True
         widget.loading = True
         if auto_buck_table.v_model and auto_buck_table.v_model[0]['pi set number'] is not None:
@@ -703,19 +773,36 @@ def hide_sd(widget, event, data):
         tab2_state = [check1.v_model, check2.v_model, check3.v_model, force_state, pi_set_nb]
         result = [[header["text"] for header in result_data.headers], result_data.items]
         doe_params = [select_DOE.v_model, select_log.v_model, anticipated_mo_entry.v_model]
+        reg_state = [select_pi0.v_model, select_reg_criteria.v_model, model_order_entry.v_model,
+                     nb_terms_slider.v_model]
+
         sl.save(file_path, sheet.items, buck_area.v_model, force_area.v_model, auto_buck_table.items, tab2_state,
                 PHYSICAL_PARAMS, PI_SETS, CHOSEN_PI_SET, PI_LISTS, CHOSEN_PI_LIST, phy_const_area.v_model,
-                pi_const_area.v_model, doe_params, DOE, result, DEPENDENCY_CHECK_STATE, REGRESSION_PI_LIST)
+                pi_const_area.v_model, doe_params, DOE, result, threshold_slider.v_model, DEPENDENCY_CHECK_STATE,
+                REGRESSION_PI_LIST, reg_state, MODELS)
         dialog.v_model = False
-        save_btn.color = "blue darken-4"
-        save_btn.children = [TL[16]]
-        time.sleep(2)
-        save_btn.color = "blue darken-2"
-        save_btn.children = [TL[17]]
         widget.disabled = False
         widget.loading = False
+        new_log(f"Saved at: {file_path}", True)
+        save_as_btn.color = "green"
+        time.sleep(0.5)
+        save_as_btn.color = "default"
     else:
-        dialog.v_model = False
+        save_as_tf.error_messages = "please specify a file name"
+
+
+def save_plots(widget, event, data):
+    try:
+        spl.save_all_plots(WORKDIR)
+        new_log(f"All plots saved at: {WORKDIR}", True)
+        widget.color = "green"
+        time.sleep(1)
+        widget.color = "default"
+    except FileNotFoundError:
+        new_log(f"No plots to save", False)
+        widget.color = "red"
+        time.sleep(1)
+        widget.color = "default"
 
 
 def load(widget, event, data):
@@ -724,10 +811,12 @@ def load(widget, event, data):
     -------
 
     """
+    global WORKDIR
+    fc_load.default_path = WORKDIR
     dialog2.v_model = True
 
 
-def hide_ld(widget, event, data):
+def hide_ld(chooser):
     """
     Parameters
     ----------
@@ -738,13 +827,33 @@ def hide_ld(widget, event, data):
 
     """
     file_path = fc_load.selected
-    widget.disabled = True
-    widget.loading = True
     if file_path:
         global OLD_PHYSICAL_PARAMS, PHYSICAL_PARAMS, OUTPUTS, PI_SETS, CHOSEN_PI_SET, PI_LISTS, CHOSEN_PI_LIST,\
-            RESULT_DF, RESULT_PI, DEPENDENCY_CHECK_STATE, REGRESSION_PI_LIST
+            RESULT_DF, RESULT_PI, DEPENDENCY_CHECK_STATE, REGRESSION_PI_LIST, MODELS
 
-        load_tuple = sl.load(file_path)
+        try:
+            load_tuple = sl.load(file_path)
+        except FileNotFoundError:
+            fc_load.reset()
+            dialog2.v_model = False
+            new_log(f"Failed to load, file does not exist", False)
+            load_btn.color = "red"
+            time.sleep(0.5)
+            load_btn.color = "default"
+            return -1
+        if len(load_tuple) != 20:
+            fc_load.reset()
+            dialog2.v_model = False
+            new_log(f"Failed to load, invalid file", False)
+            load_btn.color = "red"
+            time.sleep(0.5)
+            load_btn.color = "default"
+            return -1
+
+        dialog2.v_model = False
+        fc_load.reset()
+        load_btn.color = "green"
+        new_log(f"Loaded: {file_path}", True)
 
         sheet.items = load_tuple[0]
         buck_area.v_model = load_tuple[1]
@@ -803,6 +912,7 @@ def hide_ld(widget, event, data):
         select_log.v_model = load_tuple[12][1]
 
         does = load_tuple[13]
+
         if does:
             doeX, doePi, doePi_all, doePi_nearest, doePi_all_obj, doePI_active = does
             reduced_parameter_set, reduced_pi_set = PHYSICAL_PARAMS, CHOSEN_PI_SET
@@ -819,31 +929,35 @@ def hide_ld(widget, event, data):
         result_data.headers = csv.format_headers(result_headers)
         result_data.items = result_items
 
-        RESULT_DF = pd.DataFrame(result_items)
-        func_x_to_pi = vpl.declare_func_x_to_pi(PHYSICAL_PARAMS, CHOSEN_PI_SET)
-        ordered_columns = []
-        for key in PHYSICAL_PARAMS.dictionary:
-            ordered_columns.append(f"{key} [{PHYSICAL_PARAMS.dictionary[key].defined_units}]")
-        re_ordered_result = RESULT_DF[ordered_columns]
-        RESULT_PI = func_x_to_pi(re_ordered_result.to_numpy(dtype=float))
-        DEPENDENCY_CHECK_STATE = load_tuple[15]
-        REGRESSION_PI_LIST = load_tuple[16]
+        if result_items:
+            RESULT_DF = pd.DataFrame(result_items)
+            func_x_to_pi = vpl.declare_func_x_to_pi(PHYSICAL_PARAMS, CHOSEN_PI_SET)
+            ordered_columns = []
+            for key in PHYSICAL_PARAMS.dictionary:
+                ordered_columns.append(f"{key} [{PHYSICAL_PARAMS.dictionary[key].defined_units}]")
+            re_ordered_result = RESULT_DF[ordered_columns]
+            RESULT_PI = func_x_to_pi(re_ordered_result.to_numpy(dtype=float))
+            threshold_slider.v_model = load_tuple[15]
+            DEPENDENCY_CHECK_STATE = load_tuple[16]
+            REGRESSION_PI_LIST = load_tuple[17]
 
-        widget.disabled = False
-        widget.loading = False
-        dialog2.v_model = False
-        load_btn.color = "orange darken-4"
-        load_btn.children = [TL[19]]
-        time.sleep(2)
-        load_btn.color = "orange darken-2"
-        load_btn.children = [TL[20]]
-        if tabs.v_model == 4:
-            change_tab_5()
+        reg_state = load_tuple[18]
+        if reg_state:
+            select_pi0.v_model = reg_state[0]
+            select_reg_criteria.v_model = reg_state[1]
+            model_order_entry.v_model = int(reg_state[2])
+
+        MODELS = load_tuple[19]
+        if MODELS:
+            regression_models(models_btn, 0, 0, slider_state=int(reg_state[3]))
+
         if tabs.v_model == 5:
+            change_tab_5()
+        if tabs.v_model == 6:
             change_tab_6()
+        time.sleep(0.5)
+        load_btn.color = "default"
     else:
-        widget.disabled = False
-        widget.loading = False
         dialog2.v_model = False
 
 # --------- Buckingham Tab Functions -----------------------------------------------------------------------------------
@@ -946,6 +1060,7 @@ def nb_of_terms():
 def mo_to_size(widget, event, data):
     nb_terms = nb_of_terms()
     wished_size_entry.v_model = DOE_MULTIPLIER * nb_terms
+    model_order_entry.v_model = widget.v_model
 
 
 def check_size(widget, event, data):
@@ -959,7 +1074,12 @@ def check_size(widget, event, data):
 
 
 def gen_doe(widget, event, data):
+    global WORKDIR
     dialog3.v_model = True
+    dialog3.children[0].children[1].children = ["Current work directory: " + WORKDIR]
+    now = datetime.now()
+    dt_string = now.strftime("%d-%m-%y_%H-%M-%S")
+    doe_tf.v_model = "pyVPLM_" + dt_string
 
 
 def customize_2d_plot(widget, event, data):
@@ -980,6 +1100,8 @@ def customize_2d_plot(widget, event, data):
 
 
 def init_doe_plots(doeX, parameter_set, doePi, doePi_all, doePi_nearest, doePi_all_obj, doePI_active, pi_set, log=True):
+    spl.add_temp(WORKDIR)
+    _, _, ww, _ = GetWindowRect(GetForegroundWindow())
     error = False
     if log:
         doeX = np.log10(doeX)
@@ -992,9 +1114,9 @@ def init_doe_plots(doeX, parameter_set, doePi, doePi_all, doePi_nearest, doePi_a
     constants = []
     for key in parameter_set.dictionary:
         if log:
-            column_name = f"log10({key}) ({parameter_set.dictionary[key].defined_units})"
+            column_name = f"log10({key}) [{parameter_set.dictionary[key].defined_units}]"
         else:
-            column_name = f"{key} ({parameter_set.dictionary[key].defined_units})"
+            column_name = f"{key} [{parameter_set.dictionary[key].defined_units}]"
         columns.append(column_name)
         if len(parameter_set.dictionary[key].defined_bounds) == 0:
             constants.append(column_name)
@@ -1005,11 +1127,13 @@ def init_doe_plots(doeX, parameter_set, doePi, doePi_all, doePi_nearest, doePi_a
     phy_scatter_matrix_output.clear_output()
     with phy_scatter_matrix_output:
         try:
-            sm1 = scatter_matrix(df, figsize=(15, 15), alpha=0.9, diagonal="kde")
+            plt.rcParams['axes.labelsize'] = 14
+            sm1 = scatter_matrix(df, figsize=(30*ww/1928, 30*ww/1928), alpha=0.9, diagonal="kde")
             for i in range(np.shape(sm1)[0]):
                 for j in range(np.shape(sm1)[1]):
                     if i < j:
                         sm1[i, j].set_visible(False)
+            plt.savefig(WORKDIR + "\\temp\\phy_scatter_matrix.pdf")
             plt.show()
         except ValueError:
             error = True
@@ -1023,85 +1147,38 @@ def init_doe_plots(doeX, parameter_set, doePi, doePi_all, doePi_nearest, doePi_a
     constant_pi = cpi.get_constant_pi(df_2)
     df_2 = df_2.drop(labels=constant_pi, axis=1)
 
-    pi_scatter_matrix_output.clear_output()
-    with pi_scatter_matrix_output:
-        try:
-            sm2 = scatter_matrix(df_2, figsize=(15, 15), alpha=0.9, diagonal="kde")
-            for i in range(np.shape(sm2)[0]):
-                for j in range(np.shape(sm2)[1]):
-                    if i < j:
-                        sm2[i, j].set_visible(False)
-            plt.show()
-        except ValueError:
-            error = True
-
     df_2_1 = pd.DataFrame(data=doePi_all, columns=columns_2)
     df_2_1 = df_2_1.drop(labels=constant_pi, axis=1)
-
-    pi_scatter_matrix_output_2.clear_output()
-    with pi_scatter_matrix_output_2:
-        try:
-            hist_kwargs = {"color": "green"}
-            sm2 = scatter_matrix(df_2_1, figsize=(15, 15), alpha=0.9, diagonal="kde", color="green",
-                                 density_kwds=hist_kwargs)
-            for i in range(np.shape(sm2)[0]):
-                for j in range(np.shape(sm2)[1]):
-                    if i < j:
-                        sm2[i, j].set_visible(False)
-            plt.show()
-        except ValueError:
-            error = True
 
     df_2_2 = pd.DataFrame(data=doePi_nearest, columns=columns_2)
     df_2_2 = df_2_2.drop(labels=constant_pi, axis=1)
 
-    pi_scatter_matrix_output_3.clear_output()
-    with pi_scatter_matrix_output_3:
-        try:
-            hist_kwargs = {"color": "purple"}
-            sm2 = scatter_matrix(df_2_2, figsize=(15, 15), alpha=0.9, diagonal="kde", color="purple",
-                                 density_kwds=hist_kwargs)
-            for i in range(np.shape(sm2)[0]):
-                for j in range(np.shape(sm2)[1]):
-                    if i < j:
-                        sm2[i, j].set_visible(False)
-            plt.show()
-        except ValueError:
-            error = True
-
     df_2_3 = pd.DataFrame(data=doePI_active, columns=columns_2)
     df_2_3 = df_2_3.drop(labels=constant_pi, axis=1)
-
-    pi_scatter_matrix_output_4.clear_output()
-    with pi_scatter_matrix_output_4:
-        try:
-            hist_kwargs = {"color": "red"}
-            sm2 = scatter_matrix(df_2_3, figsize=(15, 15), alpha=0.9, diagonal="kde", color="red"
-                                 , density_kwds=hist_kwargs)
-            for i in range(np.shape(sm2)[0]):
-                for j in range(np.shape(sm2)[1]):
-                    if i < j:
-                        sm2[i, j].set_visible(False)
-            plt.show()
-        except ValueError:
-            error = True
 
     df_2_4 = pd.DataFrame(data=doePi_all_obj, columns=columns_2)
     df_2_4 = df_2_4.drop(labels=constant_pi, axis=1)
 
-    pi_scatter_matrix_output_5.clear_output()
-    with pi_scatter_matrix_output_5:
+    df_2_f = pd.concat([df_2, df_2_1, df_2_2, df_2_3, df_2_4], ignore_index=True)
+    lab0 = "Elected (Feas.)"
+    lab1 = "All (Feas.)"
+    lab2 = "3 Nearest (Feas.)"
+    lab3 = "Active (Obj.)"
+    lab4 = "All (Obj.)"
+    df_2_f["DOE points"] = [lab0]*len(df_2) + [lab1]*len(df_2_1) + [lab2]*len(df_2_2) + [lab3]*len(df_2_3) + \
+                           [lab4]*len(df_2_4)
+
+    pi_scatter_matrix_output.clear_output()
+    with pi_scatter_matrix_output:
         try:
-            hist_kwargs = {"color": "black"}
-            sm2 = scatter_matrix(df_2_4, figsize=(15, 15), alpha=0.9, diagonal="kde", color="black",
-                                 density_kwds=hist_kwargs)
-            for i in range(np.shape(sm2)[0]):
-                for j in range(np.shape(sm2)[1]):
-                    if i < j:
-                        sm2[i, j].set_visible(False)
-            plt.show()
+            pass
         except ValueError:
             error = True
+        palette = {lab0: "blue", lab1: "green", lab2: "cyan", lab3: "red", lab4: "black"}
+        sns.pairplot(df_2_f, hue="DOE points", hue_order=[lab3, lab0, lab2, lab1, lab4], palette=palette, corner=True,
+                     height=7*ww/1928, markers=["D", ".", ".", "s", "."], diag_kind="kde")
+        plt.savefig(WORKDIR + "\\temp\\pi_scatter_matrix.pdf")
+        plt.show()
 
     if error:
         raise ValueError
@@ -1114,6 +1191,8 @@ def init_doe_plots(doeX, parameter_set, doePi, doePi_all, doePi_nearest, doePi_a
     select_2d_y.items = df_3_col_list
     select_2d_y.v_model = df_3_col_list[1]
 
+    range_slider_card.width = ww * 600 / 1928
+    range_slider_card.height = ww * 580 / 1928
     range_sliders.children = []
     for col_name in df_3_col_list:
         col_min = rmm.round_min(df_3[col_name].min())
@@ -1138,14 +1217,23 @@ def init_doe_plots(doeX, parameter_set, doePi, doePi_all, doePi_nearest, doePi_a
         AX.set_xlabel(select_2d_x.v_model)
         AX.set_ylabel(select_2d_y.v_model)
         AX.plot(df_3[select_2d_x.v_model], df_3[select_2d_y.v_model], 'o')
+        FIG.set(size_inches=(10*ww/1928, 10*ww/1928))
+        FIG.savefig(WORKDIR + "\\temp\\customizable_2D_plot.pdf")
         display(AX.figure)
 
     fig = go.FigureWidget()
-    fig.layout.width = 900
-    fig.layout.height = 600
-    fig.add_parcoords(dimensions=[{'label': n, 'values': df_3[n]} for n in df_3.columns])
-
+    fig.layout.width = ww - 300 if ww - 300 > 200 else 200
+    fig.layout.height = 800
+    parcoords_labels = {}
+    if len(df_3.columns) < 5:
+        for col_name in df_3.columns:
+            parcoords_labels[col_name] = col_name
+    else:
+        for col_name in df_3.columns:
+            parcoords_labels[col_name] = col_name.split("[")[0]
+    fig.add_parcoords(dimensions=[{'label': parcoords_labels[n], 'values': df_3[n]} for n in df_3.columns])
     parallel_plot_box.children = [fig]
+    fig.write_image(WORKDIR + "\\temp\\parallel_plot.pdf")
 
     global TOTAL_DOE
     TOTAL_DOE = df_3
@@ -1158,66 +1246,142 @@ def hide_doe(widget, event, data):
     widget.loading = True
     gen_DOE_btn.disabled = True
     gen_DOE_btn.loading = True
-    file_name = fc_doe.selected
-    valid_input = True
-    if PHYSICAL_PARAMS is None or CHOSEN_PI_SET is None:
-        valid_input = False
-    if file_name and valid_input:
-        reduced_parameter_set, reduced_pi_set = PHYSICAL_PARAMS, CHOSEN_PI_SET
-        out_headers = []
-        for out in list(PHYSICAL_PARAMS.dictionary.keys())[-OUTPUTS:]:
-            reduced_parameter_set, reduced_pi_set = vpl.reduce_parameter_set(reduced_parameter_set,
-                                                                             reduced_pi_set,
-                                                                             elected_output=out)
-            out_headers.append(out + " [" + PHYSICAL_PARAMS.dictionary[out].defined_units + "]")
-        func_x_to_pi = vpl.declare_func_x_to_pi(reduced_parameter_set, reduced_pi_set)
-        try:
-            parameter_constraints = vpl.declare_constraints(reduced_parameter_set,
-                                                            csf.str_to_constraint_set(phy_const_area.v_model))
-        except (ValueError, SyntaxError):
-            phy_const_area.error_messages = "Invalid constraints"
+    doe_tf.error_messages = ""
+    if doe_tf.v_model.strip():
+        phy_save_btn.disabled = True
+        pi_save_btn.disabled = True
+        cus_save_btn.disabled = True
+        para_save_btn.disabled = True
+        file_name = WORKDIR + "\\" + doe_tf.v_model + ".csv"
+        valid_input = True
+        if PHYSICAL_PARAMS is None or CHOSEN_PI_SET is None:
+            valid_input = False
+        if file_name and valid_input:
+            reduced_parameter_set, reduced_pi_set = PHYSICAL_PARAMS, CHOSEN_PI_SET
+            out_headers = []
+            for out in list(PHYSICAL_PARAMS.dictionary.keys())[-OUTPUTS:]:
+                reduced_parameter_set, reduced_pi_set = vpl.reduce_parameter_set(reduced_parameter_set,
+                                                                                 reduced_pi_set,
+                                                                                 elected_output=out)
+                out_headers.append(out + " [" + PHYSICAL_PARAMS.dictionary[out].defined_units + "]")
+            func_x_to_pi = vpl.declare_func_x_to_pi(reduced_parameter_set, reduced_pi_set)
+            try:
+                parameter_constraints = vpl.declare_constraints(reduced_parameter_set,
+                                                                csf.str_to_constraint_set(phy_const_area.v_model))
+            except (ValueError, SyntaxError):
+                phy_const_area.error_messages = "Invalid constraints"
+                widget.disabled = False
+                widget.loading = False
+                gen_DOE_btn.disabled = False
+                gen_DOE_btn.loading = False
+                dialog3.v_model = False
+                return -1
+            try:
+                pi_constraints = vpl.declare_constraints(reduced_pi_set, csf.str_to_constraint_set(pi_const_area.v_model))
+            except (ValueError, SyntaxError):
+                pi_const_area.error_messages = "Invalid constraints"
+                widget.disabled = False
+                widget.loading = False
+                dialog3.v_model = False
+                gen_DOE_btn.disabled = False
+                gen_DOE_btn.loading = False
+                return -1
+            out_tuple = doe.create_const_doe(reduced_parameter_set, reduced_pi_set, func_x_to_pi,
+                                             parameters_constraints=parameter_constraints,
+                                             pi_constraints=pi_constraints,
+                                             whished_size=int(wished_size_entry.v_model),
+                                             test_mode=True,
+                                             log_space=(select_log.v_model == "Log"))
+            doeX, doePi, doePi_all, doePi_nearest, doePi_all_obj, doePI_active = out_tuple
+            global DOE
+            DOE = [doeX, doePi, doePi_all, doePi_nearest, doePi_all_obj, doePI_active]
+            csv.generate_csv(doeX, file_name, reduced_parameter_set, out_headers)
+            if len(doe_box.children) == 3:
+                doe_box.children = list(doe_box.children) + [exp_panel_doe]
             widget.disabled = False
             widget.loading = False
             gen_DOE_btn.disabled = False
             gen_DOE_btn.loading = False
             dialog3.v_model = False
-            return -1
-        try:
-            pi_constraints = vpl.declare_constraints(reduced_pi_set, csf.str_to_constraint_set(pi_const_area.v_model))
-        except (ValueError, SyntaxError):
-            pi_const_area.error_messages = "Invalid constraints"
-            widget.disabled = False
-            widget.loading = False
-            dialog3.v_model = False
-            gen_DOE_btn.disabled = False
-            gen_DOE_btn.loading = False
-            return -1
-        out_tuple = doe.create_const_doe(reduced_parameter_set, reduced_pi_set, func_x_to_pi,
-                                         parameters_constraints=parameter_constraints,
-                                         pi_constraints=pi_constraints,
-                                         whished_size=int(wished_size_entry.v_model),
-                                         test_mode=True,
-                                         log_space=(select_log.v_model == "Log"))
-        doeX, doePi, doePi_all, doePi_nearest, doePi_all_obj, doePI_active = out_tuple
-        global DOE
-        DOE = [doeX, doePi, doePi_all, doePi_nearest, doePi_all_obj, doePI_active]
-        csv.generate_csv(doeX, file_name, reduced_parameter_set, out_headers)
-        if len(doe_box.children) == 3:
-            doe_box.children = list(doe_box.children) + [exp_panel_doe]
+            try:
+                init_doe_plots(doeX, reduced_parameter_set, doePi, doePi_all, doePi_nearest, doePi_all_obj,
+                               doePI_active, reduced_pi_set, log=(select_log.v_model == "Log"))
+                phy_save_btn.disabled = False
+                pi_save_btn.disabled = False
+                cus_save_btn.disabled = False
+                para_save_btn.disabled = False
+
+            except ValueError:
+                if len(doe_box.children) > 3:
+                    doe_box.children = list(doe_box.children[:-1])
+                phy_const_area.error_messages = "Constraints are too restrictive"
+                pi_const_area.error_messages = "Constraints are too restrictive"
+    else:
+        doe_tf.error_messages = "Please specify a file name"
         widget.disabled = False
         widget.loading = False
         gen_DOE_btn.disabled = False
         gen_DOE_btn.loading = False
-        dialog3.v_model = False
-        try:
-            init_doe_plots(doeX, reduced_parameter_set, doePi, doePi_all, doePi_nearest, doePi_all_obj, doePI_active,
-                           reduced_pi_set, log=(select_log.v_model == "Log"))
-        except ValueError:
-            if len(doe_box.children) > 3:
-                doe_box.children = list(doe_box.children[:-1])
-            phy_const_area.error_messages = "Constraints are too restrictive"
-            pi_const_area.error_messages = "Constraints are too restrictive"
-            return -1
+
+
+def save_phy(widget, event, data):
+    try:
+        new_name = spl.save_single_plot(WORKDIR, "phy_scatter_matrix.pdf")
+    except FileNotFoundError:
+        new_log(f"Failed to save (plot may already be saved)", False)
+        widget.color = "red"
+        time.sleep(1)
+        widget.color = "default"
+    else:
+        new_log(f"Saved plot as: {new_name}", True)
+        widget.color = "green"
+        time.sleep(1)
+        widget.color = "default"
+
+
+def save_pi(widget, event, data):
+    try:
+        new_name = spl.save_single_plot(WORKDIR, "pi_scatter_matrix.pdf")
+    except FileNotFoundError:
+        new_log(f"Failed to save (plot may already be saved)", False)
+        widget.color = "red"
+        time.sleep(1)
+        widget.color = "default"
+    else:
+        new_log(f"Saved plot as: {new_name}", True)
+        widget.color = "green"
+        time.sleep(1)
+        widget.color = "default"
+
+
+def save_cus(widget, event, data):
+    try:
+        new_name = spl.save_single_plot(WORKDIR, "customizable_2D_plot.pdf")
+    except FileNotFoundError:
+        new_log(f"Failed to save (plot may already be saved)", False)
+        widget.color = "red"
+        time.sleep(1)
+        widget.color = "default"
+    else:
+        new_log(f"Saved plot as: {new_name}", True)
+        widget.color = "green"
+        time.sleep(1)
+        widget.color = "default"
+
+
+def save_para(widget, event, data):
+    try:
+        new_name = spl.save_single_plot(WORKDIR, "parallel_plot.pdf")
+    except FileNotFoundError:
+        new_log(f"Failed to save (plot may already be saved)", False)
+        widget.color = "red"
+        time.sleep(1)
+        widget.color = "default"
+    else:
+        new_log(f"Saved plot as: {new_name}", True)
+        widget.color = "green"
+        time.sleep(1)
+        widget.color = "default"
 
 
 def tab3_reload():
@@ -1262,15 +1426,23 @@ def tab3_enable():
 
 
 def gen_empty_csv(widget, event, data):
+    global WORKDIR
     dialog5.v_model = True
+    dialog5.children[0].children[1].children = ["Current work directory: " + WORKDIR]
+    now = datetime.now()
+    dt_string = now.strftime("%d-%m-%y_%H-%M-%S")
+    empty_tf.v_model = "pyVPLM_empty_" + dt_string
 
 
 def hide_empty_csv(widget, event, data):
     widget.disabled = True
     widget.loading = True
-    global PHYSICAL_PARAMS, RESULT_DF, RESULT_PI, CHOSEN_PI_SET
-    path = fc_res_2.selected
-    if path:
+    empty_csv_btn.disabled = True
+    empty_csv_btn.loading = True
+    empty_tf.error_messages = ""
+    global PHYSICAL_PARAMS, RESULT_DF, RESULT_PI, CHOSEN_PI_SET, WORKDIR
+    path = WORKDIR + "\\" + empty_tf.v_model + ".csv"
+    if empty_tf.v_model.strip():
         try:
             reduced_parameter_set = copy.deepcopy(PHYSICAL_PARAMS)
             out_headers = []
@@ -1281,28 +1453,37 @@ def hide_empty_csv(widget, event, data):
         except Exception as e:
             result_alert.children = [str(e)]
             result_alert_cont.children = [result_alert]
-    widget.loading = False
-    widget.disabled = False
-    dialog5.v_model = False
-    empty_csv_btn.children = ["Empty csv generated"]
-    empty_csv_btn.color = "grey lighten-2"
-    time.sleep(2)
-    empty_csv_btn.children = ["Generate empty csv"]
-    empty_csv_btn.color = "grey lighten-4"
+        widget.disabled = False
+        widget.loading = False
+        empty_csv_btn.loading = False
+        empty_csv_btn.disabled = False
+        dialog5.v_model = False
+        empty_csv_btn.children = ["Empty csv generated"]
+        empty_csv_btn.color = "grey lighten-2"
+        time.sleep(1.5)
+        empty_csv_btn.children = ["Generate empty csv"]
+        empty_csv_btn.color = "grey lighten-4"
+    else:
+        empty_tf.error_messages = "Please specify a file name"
+        widget.disabled = False
+        widget.loading = False
+        empty_csv_btn.loading = False
+        empty_csv_btn.disabled = False
 
 
 def result_import(widget, event, data):
     dialog4.v_model = True
+    fc_res.default_path = WORKDIR
 
 
-def hide_res_import(widget, event, data):
-    widget.disabled = True
-    widget.loading = True
-    global PHYSICAL_PARAMS, RESULT_DF, RESULT_PI, CHOSEN_PI_SET
+def hide_res_import():
+    result_btn.disabled = True
+    result_btn.loading = True
+    global PHYSICAL_PARAMS, RESULT_DF, RESULT_PI, CHOSEN_PI_SET, DEPENDENCY_CHECK_STATE
     path = fc_res.selected
     if path:
         try:
-            headers, items, RESULT_DF = csv.read_csv(path, PHYSICAL_PARAMS)
+            headers, items, RESULT_DF = csv.read_csv(path, PHYSICAL_PARAMS, round_=True)
             result_data.headers = headers
             result_data.items = items
             result_alert_cont.children = []
@@ -1313,11 +1494,13 @@ def hide_res_import(widget, event, data):
                     ordered_columns.append(f"{key} [{PHYSICAL_PARAMS.dictionary[key].defined_units}]")
                 re_ordered_result = RESULT_DF[ordered_columns]
                 RESULT_PI = func_x_to_pi(re_ordered_result.to_numpy(dtype=float))
+                DEPENDENCY_CHECK_STATE = []
+                select_pi0.v_model = ""
         except Exception as e:
             result_alert.children = [str(e)]
             result_alert_cont.children = [result_alert]
-    widget.disabled = False
-    widget.loading = False
+    result_btn.disabled = False
+    result_btn.loading = False
     dialog4.v_model = False
 
 # -----Dependency Tab functions-----------------------------------------------------------------------------------------
@@ -1411,6 +1594,8 @@ def toggle_dependency_check():
 def update_dependency_plots(widget, event, data):
     widget.disabled = True
     widget.loading = True
+    sen_save_btn.disabled = True
+    dep_save_btn.disabled = True
     piN, pi0 = input_output_lists()
     for i in range(len(DEPENDENCY_CHECK_STATE)):
         if not DEPENDENCY_CHECK_STATE[i]:
@@ -1419,19 +1604,22 @@ def update_dependency_plots(widget, event, data):
                 piN.remove(pi_n)
             elif pi_n in pi0:
                 pi0.remove(pi_n)
-    sensitivity_output.clear_output()
+    sensitivity_output.clear_output(wait=True)
     with sensitivity_output:
-        dpp.pi_sensitivity_plot(CHOSEN_PI_SET, RESULT_PI, pi0=pi0, piN=piN, latex=True)
-    dependency_output.clear_output()
+        dpp.pi_sensitivity_plot(CHOSEN_PI_SET, RESULT_PI, WORKDIR, pi0=pi0, piN=piN, latex=True)
+    dependency_output.clear_output(wait=True)
     with dependency_output:
-        dpp.pi_dependency_plot(CHOSEN_PI_SET, RESULT_PI, x_list=piN, y_list=piN, latex=True,
+        dpp.pi_dependency_plot(CHOSEN_PI_SET, RESULT_PI, WORKDIR, x_list=piN, y_list=piN, latex=True,
                                threshold=threshold_slider.v_model)
     widget.disabled = False
     widget.loading = False
+    sen_save_btn.disabled = False
+    dep_save_btn.disabled = False
 
 
 def change_threshold(widget, event, data):
-    dependency_output.clear_output()
+    widget.loading = True
+    dep_save_btn.disabled = True
     piN, _ = input_output_lists()
     for i in range(len(DEPENDENCY_CHECK_STATE)):
         if not DEPENDENCY_CHECK_STATE[i]:
@@ -1440,7 +1628,40 @@ def change_threshold(widget, event, data):
                 piN.remove(pi_n)
     dependency_output.clear_output(wait=True)
     with dependency_output:
-        dpp.pi_dependency_plot(CHOSEN_PI_SET, RESULT_PI, x_list=piN, y_list=piN, latex=True, threshold=widget.v_model)
+        dpp.pi_dependency_plot(CHOSEN_PI_SET, RESULT_PI, WORKDIR, x_list=piN, y_list=piN, latex=True,
+                               threshold=widget.v_model)
+    widget.loading = False
+    dep_save_btn.disabled = False
+
+
+def save_sen(widget, event, data):
+    try:
+        new_name = spl.save_single_plot(WORKDIR, "sensitivity_plot.pdf")
+    except FileNotFoundError:
+        new_log(f"Failed to save (plot may already be saved)", False)
+        widget.color = "red"
+        time.sleep(1)
+        widget.color = "default"
+    else:
+        new_log(f"Saved plot as: {new_name}", True)
+        widget.color = "green"
+        time.sleep(1)
+        widget.color = "default"
+
+
+def save_dep(widget, event, data):
+    try:
+        new_name = spl.save_single_plot(WORKDIR, "dependency_plot.pdf")
+    except FileNotFoundError:
+        new_log(f"Failed to save (plot may already be saved)", False)
+        widget.color = "red"
+        time.sleep(1)
+        widget.color = "default"
+    else:
+        new_log(f"Saved plot as: {new_name}", True)
+        widget.color = "green"
+        time.sleep(1)
+        widget.color = "default"
 
 # -----Regression Tab functions-----------------------------------------------------------------------------------------
 
@@ -1451,7 +1672,6 @@ def tab6_enable():
     select_reg_criteria.disabled = False
     models_btn.disabled = False
     nb_terms_slider.disabled = False
-    regression_btn.disabled = False
 
 
 def tab6_disable():
@@ -1460,12 +1680,11 @@ def tab6_disable():
     select_reg_criteria.disabled = True
     models_btn.disabled = True
     nb_terms_slider.disabled = True
-    regression_btn.disabled = True
 
 
 def slider_tick_labels(max_nb):
     tick_labels = list(range(1, max_nb + 1))
-    if max_nb > 20:
+    if max_nb > 50:
         visible_labels = [1]
         for i in range(1, 11):
             visible_labels.append(round(i*(max_nb - 1)/10 + 1))
@@ -1475,12 +1694,24 @@ def slider_tick_labels(max_nb):
     return tick_labels
 
 
-def regression_models(widget, event, data):
+def regression_models(widget, event, data, slider_state=1):
+    spl.add_temp(WORKDIR)
     widget.disabled = True
     widget.loading = True
-    global MODELS, RESULT_PI
+    models_save_btn.disabled = True
+    nb_terms_slider.disabled = True
+    model_order_entry.error_messages = ""
+    model_order = int(float(model_order_entry.v_model))
+    if model_order < 1:
+        model_order_entry.error_messages = "Model order should be >= 1"
+        widget.disabled = False
+        widget.loading = False
+        nb_terms_slider.disabled = False
+        return -1
+    global MODELS, RESULT_PI, REGRESSIONS, PI0_PI_LIST
     modified_result_pi = RESULT_PI
     selected_pi0 = int(select_pi0.v_model[2:])
+    max_pi_nb = np.shape(RESULT_PI)[1]
     list_to_del = []
     _, output_pi_names = input_output_lists()
     for pi_name in output_pi_names:
@@ -1497,6 +1728,11 @@ def regression_models(widget, event, data):
         if i < selected_pi0 - 1:
             actual_pi0 -= 1
     eff_pi0 = actual_pi0 + 1
+    pi_list = []
+    for i in range(0, max_pi_nb):
+        if i not in list_to_del:
+            pi_list.append(f"pi{i + 1}")
+    PI0_PI_LIST = [eff_pi0 - 1, pi_list]
 
     criteria = select_reg_criteria.v_model
     if criteria == "max(error)":
@@ -1508,76 +1744,171 @@ def regression_models(widget, event, data):
     else:
         choice = 4
     if not RESULT_DF.empty:
-        models_output.clear_output()
+        models_output.clear_output(wait=True)
+        _, _, ww, _ = GetWindowRect(GetForegroundWindow())
         with models_output:
             warnings.filterwarnings("ignore")
-            MODELS = vpl.regression_models(modified_result_pi, elected_pi0=select_pi0.v_model,
-                                           order=int(model_order_entry.v_model), test_mode=True, plots=True,
-                                           force_choice=choice, ymax_axis=10000, removed_pi=list_to_del,
-                                           eff_pi0=eff_pi0)
-            current_axes = plt.gca()
-            current_axes.axvline(2, color="blue")
+            MODELS, axs, fig = vpl.regression_models(modified_result_pi, elected_pi0=select_pi0.v_model,
+                                                     order=model_order, test_mode=True, plots=True,
+                                                     force_choice=choice, ymax_axis=1000, removed_pi=list_to_del,
+                                                     eff_pi0=eff_pi0, skip_cross_validation=True, return_axes=True,
+                                                     fig_size=(29*ww/1928, 12*ww/1928))
+            max_nb_terms = len(MODELS.keys()) - 4
+            fig_width, _ = fig.get_size_inches()*fig.dpi
+            omicron = 0.001 * max_nb_terms
+            if slider_state >= max_nb_terms:
+                slider_state = 1
+            for i in range(len(axs)):
+                ax = axs[i]
+                err_train = "NaN"
+                err_test = "NaN"
+                if i == 0:
+                    err_train = round(MODELS["max |e|"][0][slider_state], 1)
+                    err_test = round(MODELS["max |e|"][1][slider_state], 1)
+                elif i == 1:
+                    err_train = round(MODELS["ave. |e|"][0][slider_state], 1)
+                    err_test = round(MODELS["ave. |e|"][1][slider_state], 1)
+                elif i == 2:
+                    err_train = round(MODELS["ave. e"][0][slider_state], 1)
+                    err_test = round(MODELS["ave. e"][1][slider_state], 1)
+                elif i == 3:
+                    err_train = round(MODELS["sigma e"][0][slider_state], 1)
+                    err_test = round(MODELS["sigma e"][1][slider_state], 1)
+                y_max = ax.get_ylim()[1]
+                if slider_state == 0:
+                    ax.axvline(1 + omicron, color="blue")
+                    ax.text(1 + 10*omicron, 3*y_max/8, str(err_train), fontdict={"fontsize": "large",
+                                                                      "fontfamily": "sans-serif"})
+                    if err_test != 0:
+                        ax.text(1 + 10*omicron, 5*y_max/8, str(err_test), color="red",
+                                fontdict={"fontsize": "large", "fontfamily": "sans-serif"})
+                else:
+                    ax.axvline(slider_state + 1, color="blue")
+                    ax.text(slider_state + 1 + 10*omicron, 3*y_max/8, str(err_train),
+                            fontdict={"fontsize": "large", "fontfamily": "serif"})
+                    if err_test != 0:
+                        ax.text(slider_state + 1 + 10*omicron, 5*y_max/8, str(err_test), color="red",
+                                fontdict={"fontsize": "large", "fontfamily": "sans-serif"})
+            fig.savefig(os.path.join(WORKDIR, "temp\\regression_models_plot.pdf"))
             plt.show()
-        max_nb_terms = len(MODELS.keys()) - 4
+        REGRESSIONS = []
+        for i in range(max_nb_terms):
+            expression, expression_latex, y, y_reg = vpl.perform_regression(modified_result_pi, MODELS,
+                                                                            chosen_model=i + 1,
+                                                                            latex=True, pi_list=pi_list,
+                                                                            max_pi_nb=max_pi_nb,
+                                                                            removed_pi=list_to_del,
+                                                                            eff_pi0=eff_pi0, test_mode=True,
+                                                                            no_plots=True)
+            REGRESSIONS.append({"expr": expression, "expr_latex": expression_latex, "Y": y, "Y_reg": y_reg})
         nb_terms_slider.tick_labels = slider_tick_labels(max_nb_terms)
         nb_terms_slider.max = max_nb_terms - 1
-        if len(regression_cont.children) == 4:
-            regression_cont.children = regression_cont.children + [regression_col, regression_output]
-        regression_btn.disabled = False
+        if len(regression_cont.children) == 3:
+            regression_cont.children = regression_cont.children + [models_output_col, nb_terms_slider_row,
+                                                                   save_reg_cont, regression_output]
+        nb_terms_slider.v_model = slider_state
+        slider_margin_right = 118*ww/1928
+        nb_terms_slider.style_ = f"margin : 0px {slider_margin_right}px 0px 56px"
+        perform_regression(nb_terms_slider, "change", 0, from_reg_models=True)
+        nb_terms_slider.disabled = False
+    models_save_btn.disabled = False
     widget.disabled = False
     widget.loading = False
 
 
-def perform_regression(widget, event, data):
-    nb_terms_slider.error_messages = ""
+def perform_regression(widget, event, data, from_reg_models=False):
     widget.disabled = True
     widget.loading = True
-    global MODELS
-    max_nb_terms = len(MODELS.keys()) - 4
-    if int(nb_terms_slider.v_model + 1) <= 0:
-        nb_terms_slider.error_messages = "number of terms has to be at least 1"
-    elif int(nb_terms_slider.v_model + 1) > max_nb_terms:
-        nb_terms_slider.error_messages = f"number of terms can't be more than {max_nb_terms}"
-    else:
-        global RESULT_PI
-        selected_pi0 = int(select_pi0.v_model[2:]) - 1
-        max_pi_nb = np.shape(RESULT_PI)[1]
-        modified_result_pi = RESULT_PI
-        list_to_del = []
-        _, output_pi_names = input_output_lists()
-        for pi_name in output_pi_names:
-            index = int(pi_name[2:]) - 1
-            if index != selected_pi0:
-                list_to_del.append(index)
-        if DEPENDENCY_CHECK_STATE:
-            for i in range(len(DEPENDENCY_CHECK_STATE)):
-                if not DEPENDENCY_CHECK_STATE[i] and i not in list_to_del:
-                    list_to_del.append(i)
-        modified_result_pi = np.delete(modified_result_pi, list_to_del, 1)
-        actual_pi0 = selected_pi0 - 1
-        for i in list_to_del:
-            if i < selected_pi0 - 1:
-                actual_pi0 -= 1
-        eff_pi0 = actual_pi0 + 1
-        pi_list = []
-        for i in range(0, max_pi_nb):
-            if i not in list_to_del:
-                pi_list.append(f"pi{i + 1}")
+    models_save_btn.disabled = True
+    reg_save_btn.disabled = True
+    global REGRESSIONS, PI0_PI_LIST, MODELS
+    chosen_model = nb_terms_slider.v_model
+    if not from_reg_models:
+        models_output.clear_output(wait=True)
+        with models_output:
+            axs, fig = dpp.regression_models_plot(MODELS, WORKDIR)
+            with plt.rc_context({"text.usetex": False, "font.family": "sans-serif"}):
+                max_nb_terms = len(MODELS.keys()) - 4
+                omicron = 0.001 * max_nb_terms
+                if chosen_model >= max_nb_terms:
+                    chosen_model = 1
+                for i in range(len(axs)):
+                    err_train = "NaN"
+                    err_test = "NaN"
+                    if i == 0:
+                        err_train = round(MODELS["max |e|"][0][chosen_model], 1)
+                        err_test = round(MODELS["max |e|"][1][chosen_model], 1)
+                    elif i == 1:
+                        err_train = round(MODELS["ave. |e|"][0][chosen_model], 1)
+                        err_test = round(MODELS["ave. |e|"][1][chosen_model], 1)
+                    elif i == 2:
+                        err_train = round(MODELS["ave. e"][0][chosen_model], 1)
+                        err_test = round(MODELS["ave. e"][1][chosen_model], 1)
+                    elif i == 3:
+                        err_train = round(MODELS["sigma e"][0][chosen_model], 1)
+                        err_test = round(MODELS["sigma e"][1][chosen_model], 1)
+                    y_max = axs[i].get_ylim()[1]
+                    if chosen_model == 0:
+                        axs[i].axvline(1 + omicron, color="blue")
+                        axs[i].text(1 + 10*omicron, 3 * y_max / 8, str(err_train), fontdict={"fontsize": "large",
+                                                                                  "fontfamily": "sans-serif"})
+                        if err_test != 0:
+                            axs[i].text(1 + 10*omicron, 5 * y_max / 8, str(err_test), color="red",
+                                        fontdict={"fontsize": "large", "fontfamily": "sans-serif"})
+                    else:
+                        axs[i].axvline(chosen_model + 1, color="blue")
+                        axs[i].text(chosen_model + 1 + 10*omicron, 3 * y_max / 8, str(err_train),
+                                    fontdict={"fontsize": "large", "fontfamily": "sans-serif"})
+                        if err_test != 0:
+                            axs[i].text(chosen_model + 1 + 10*omicron, 5 * y_max / 8, str(err_test), color="red",
+                                        fontdict={"fontsize": "large", "fontfamily": "sans-serif"})
+            fig.savefig(os.path.join(WORKDIR, "temp\\regression_models_plot.pdf"))
+            plt.show()
 
-        if MODELS is not None:
-            regression_output.clear_output()
-            with regression_output:
-                _, expression_latex = vpl.perform_regression(modified_result_pi, MODELS,
-                                                             chosen_model=int(nb_terms_slider.v_model + 1),
-                                                             latex=True, pi_list=pi_list, max_pi_nb=max_pi_nb,
-                                                             removed_pi=list_to_del, eff_pi0=eff_pi0, test_mode=True)
-                plt.show()
-            if len(regression_cont.children) == 6:
-                regression_cont.children = regression_cont.children + [expression_card]
-            math_widget = widgets.HTMLMath(expression_latex)
-            expression_cont.children = [math_widget]
+    regression_output.clear_output(wait=True)
+    with regression_output:
+        dic = REGRESSIONS[chosen_model]
+        dpp.perform_regression_plot(dic["expr"], dic["Y"], dic["Y_reg"], PI0_PI_LIST[0],
+                                    PI0_PI_LIST[1], WORKDIR)
+        plt.show()
+    if len(regression_cont.children) == 7:
+        regression_cont.children = regression_cont.children + [expression_card]
+    math_widget = widgets.HTMLMath(dic["expr_latex"])
+    expression_cont.children = [math_widget]
+    models_save_btn.disabled = False
+    reg_save_btn.disabled = False
     widget.disabled = False
     widget.loading = False
+
+
+def save_models(widget, event, data):
+    try:
+        new_name = spl.save_single_plot(WORKDIR, "regression_models_plot.pdf")
+    except FileNotFoundError:
+        new_log(f"Failed to save (plot may already be saved)", False)
+        widget.color = "red"
+        time.sleep(1)
+        widget.color = "default"
+    else:
+        new_log(f"Saved plot as: {new_name}", True)
+        widget.color = "green"
+        time.sleep(1)
+        widget.color = "default"
+
+
+def save_reg(widget, event, data):
+    try:
+        new_name = spl.save_single_plot(WORKDIR, "perform_regression_plot.pdf")
+    except FileNotFoundError:
+        new_log(f"Failed to save (plot may already be saved)", False)
+        widget.color = "red"
+        time.sleep(1)
+        widget.color = "default"
+    else:
+        new_log(f"Saved plot as: {new_name}", True)
+        widget.color = "green"
+        time.sleep(1)
+        widget.color = "default"
 
 # -----All Tabs functions-----------------------------------------------------------------------------------------------
 
@@ -1680,6 +2011,9 @@ def change_tab_5():
         DEPENDENCY_CHECK_STATE
     dependency_alert_cont.children = []
     if CHOSEN_PI_SET is not None:
+        sen_save_btn.disabled = True
+        dep_save_btn.disabled = True
+        update_dependency_plots_btn.loading = True
         nochange1 = CHOSEN_PI_SET == OLD_PI_SET
         nochange2 = RESULT_DF.equals(OLD_RESULT)
         if not RESULT_DF.empty and (not nochange2 or not nochange1):
@@ -1700,23 +2034,24 @@ def change_tab_5():
                 ordered_columns.append(f"{key} [{PHYSICAL_PARAMS.dictionary[key].defined_units}]")
             re_ordered_result = RESULT_DF[ordered_columns]
             RESULT_PI = func_x_to_pi(re_ordered_result.to_numpy(dtype=float))
-            with sensitivity_output:
-                try:
-                    piN, pi0 = input_output_lists()
-                    dpp.pi_sensitivity_plot(CHOSEN_PI_SET, RESULT_PI, pi0=pi0, piN=piN, latex=True)
-                except ValueError as e:
-                    print(e)
-            dependency_output.clear_output()
-            with dependency_output:
-                dpp.pi_dependency_plot(CHOSEN_PI_SET, RESULT_PI, x_list=piN, y_list=piN, latex=True)
-            dependency_set.children[1].children = pi_set_html(pif.pi_list_to_str(REGRESSION_PI_LIST))
             checkboxes = []
             if DEPENDENCY_CHECK_STATE:
+                update_dependency_plots(update_dependency_plots_btn, 0, 0)
                 for i in range(len(CHOSEN_PI_LIST)):
                     checkboxes.append(v.Checkbox(v_model=DEPENDENCY_CHECK_STATE[i], label=f"pi{i + 1}", class_="mx-2",
                                                  disabled=False))
                     checkboxes[i].on_event("change", dependency_check)
             else:
+                with sensitivity_output:
+                    try:
+                        piN, pi0 = input_output_lists()
+                        dpp.pi_sensitivity_plot(CHOSEN_PI_SET, RESULT_PI, WORKDIR, pi0=pi0, piN=piN, latex=True)
+                    except ValueError as e:
+                        print(e)
+                dependency_output.clear_output()
+                with dependency_output:
+                    dpp.pi_dependency_plot(CHOSEN_PI_SET, RESULT_PI, WORKDIR, x_list=piN, y_list=piN, latex=True)
+                dependency_set.children[1].children = pi_set_html(pif.pi_list_to_str(REGRESSION_PI_LIST))
                 for i in range(len(CHOSEN_PI_LIST)):
                     checkboxes.append(v.Checkbox(v_model=True, label=f"pi{i + 1}", class_="mx-2", disabled=False))
                     checkboxes[i].on_event("change", dependency_check)
@@ -1735,6 +2070,9 @@ def change_tab_5():
             exp_panel_dependency.v_model = []
             exp_panel_dependency.disabled = True
             pi_removal_card.disabled = True
+        sen_save_btn.disabled = False
+        dep_save_btn.disabled = False
+        update_dependency_plots_btn.loading = False
     else:
         dependency_alert_cont.children = [dependency_pi_set_alert]
         exp_panel_dependency.v_model = []
@@ -1747,8 +2085,7 @@ def change_tab_5():
 def change_tab_6():
     tab6_enable()
     reg_alert_cont.children = []
-    regression_btn.disabled = True
-    global DEPENDENCY_CHECK_STATE, REGRESSION_PI_LIST, CHOSEN_PI_LIST, CHOSEN_PI_SET
+    global DEPENDENCY_CHECK_STATE, OLD_DEPENDENCY_CHECK_STATE, REGRESSION_PI_LIST, CHOSEN_PI_LIST, CHOSEN_PI_SET
     if CHOSEN_PI_SET is not None:
         if not RESULT_DF.empty:
             if not REGRESSION_PI_LIST and CHOSEN_PI_LIST:
@@ -1761,21 +2098,25 @@ def change_tab_6():
             for pi_n in pi0:
                 out_index.append(int(pi_n.replace("pi", "")) - 1)
             items = []
-            if DEPENDENCY_CHECK_STATE:
+            if DEPENDENCY_CHECK_STATE and DEPENDENCY_CHECK_STATE != OLD_DEPENDENCY_CHECK_STATE:
                 for i in out_index:
                     if DEPENDENCY_CHECK_STATE[i]:
                         items.append(f"pi{i + 1}")
                 select_pi0.items = items
+                if len(select_pi0.items) > 0:
+                    select_pi0.v_model = select_pi0.items[0]
             else:
                 for i in out_index:
                     items.append(f"pi{i + 1}")
                 select_pi0.items = items
-            if len(select_pi0.items) > 0:
-                select_pi0.v_model = select_pi0.items[0]
-            model_order_entry.v_model = anticipated_mo_entry.v_model
+                if len(select_pi0.items) > 0 and select_pi0.v_model == "":
+                    select_pi0.v_model = select_pi0.items[0]
+                    select_reg_criteria.v_model = "max(error)"
+                    model_order_entry.v_model = anticipated_mo_entry.v_model
         else:
             reg_alert_cont.children = [reg_no_result_error]
             tab6_disable()
+        OLD_DEPENDENCY_CHECK_STATE = DEPENDENCY_CHECK_STATE
     else:
         reg_alert_cont.children = [reg_no_pi_set_error]
         tab6_disable()
@@ -1783,17 +2124,53 @@ def change_tab_6():
 
 def change_tab(widget, event, data):
     # if you change the number of tabs /!\ change line 789: if tabs.v_model == 4:
-    if data == 1:
-        change_tab_2()
     if data == 2:
-        change_tab_3()
+        change_tab_2()
     if data == 3:
-        change_tab_4()
+        change_tab_3()
     if data == 4:
-        change_tab_5()
+        change_tab_4()
     if data == 5:
+        change_tab_5()
+    if data == 6:
         change_tab_6()
 
+# -----------Tutorial Tab-----------------------------------------------------------------------------------------------
+
+
+_, _, x_w, y_w = GetWindowRect(GetForegroundWindow())
+tutorial_box = v.Card(children=[v.CardTitle(children=["What is pyVPLM ?"]),
+                                v.CardText(children=["Lorem ipsum dolor sit amet, consectetur adipiscing elit. Nam ac "
+                                                     "eros nisi. Nam vitae enim mauris. Interdum et malesuada fames ac "
+                                                     "ante ipsum primis in faucibus. Etiam dapibus bibendum felis. Nulla"
+                                                     " et euismod lorem, eget pretium ligula. Proin feugiat et eros id "
+                                                     "fringilla. Duis eu nibh ut quam ultricies ultricies ac et nulla. "
+                                                     "Mauris in consequat nibh. Sed tristique, orci nec porttitor "
+                                                     "aliquet, urna ex porttitor lorem, vel elementum lacus massa "
+                                                     "a erat. Morbi quis pharetra diam. Nulla malesuada libero in mi "
+                                                     "elementum, at viverra arcu lobortis. Donec sem ipsum, tempus sed "
+                                                     "semper ac, convallis eget lacus. Proin rhoncus eros urna, in "
+                                                     "feugiat purus eleifend vitae. Vivamus eros sem, tincidunt nec "
+                                                     "tempus at, venenatis at est. Sed posuere nisi vel dignissim "
+                                                     "vestibulum. Sed tortor enim, eleifend sit amet rutrum ultricies, "
+                                                     "placerat ac tellus."]),
+                                v.CardTitle(children=["How to use pyVPLM ?"]),
+                                v.CardText(children=["Lorem ipsum dolor sit amet, consectetur adipiscing elit. Nam ac "
+                                                     "eros nisi. Nam vitae enim mauris. Interdum et malesuada fames ac "
+                                                     "ante ipsum primis in faucibus. Etiam dapibus bibendum felis. Nulla"
+                                                     " et euismod lorem, eget pretium ligula. Proin feugiat et eros id "
+                                                     "fringilla. Duis eu nibh ut quam ultricies ultricies ac et nulla. "
+                                                     "Mauris in consequat nibh. Sed tristique, orci nec porttitor "
+                                                     "aliquet, urna ex porttitor lorem, vel elementum lacus massa "
+                                                     "a erat. Morbi quis pharetra diam. Nulla malesuada libero in mi "
+                                                     "elementum, at viverra arcu lobortis. Donec sem ipsum, tempus sed "
+                                                     "semper ac, convallis eget lacus. Proin rhoncus eros urna, in "
+                                                     "feugiat purus eleifend vitae. Vivamus eros sem, tincidunt nec "
+                                                     "tempus at, venenatis at est. Sed posuere nisi vel dignissim "
+                                                     "vestibulum. Sed tortor enim, eleifend sit amet rutrum ultricies, "
+                                                     "placerat ac tellus."]),
+                                v.CardText(children=[f"x = {x_w} ", f"y = {y_w}"])],
+                      color="blue lighten-5", height=800)
 
 # -----------Physical Parameters Tab------------------------------------------------------------------------------------
 
@@ -1813,7 +2190,7 @@ lb_entry.on_event('click', error_end)
 ub_entry = v.TextField(v_model="", type="number", label="Upper bound", outlined=True)
 ub_entry.on_event('click', error_end)
 
-add_btn = v.Btn(children=[TL[25]], height=56, width=305)
+add_btn = v.Btn(children=[TL[25]], height=56, width="100%")
 add_btn.on_event('click', add_item)
 
 h = [{'text': 'Name', 'sortable': False, 'value': 'name'},
@@ -1853,7 +2230,7 @@ tool_del = v.Tooltip(bottom=True, v_slots=[{
 }],
                      children=[TL[26]])
 
-icon_out = v.Btn(children=[v.Icon(children=["O/I"], size=27)],
+icon_out = v.Btn(children=[v.Icon(children=["mdi-variable-box"], size=27)],
                  v_on="tooltip.on",
                  icon=True,
                  style_="margin : 10px 20px 10px 0px")
@@ -1971,12 +2348,12 @@ force_area = v.Textarea(v_model='',
                         row=6)
 force_area.on_event('click', error_end)
 
-force_buck_btn = v.Btn(children=[TL[11]], width="50%")
+force_buck_btn = v.Btn(children=[TL[11]], width="50%", max_width=500)
 force_buck_btn.on_event('click', force_buckingham)
 
 box4 = v.Container(children=[v.Row(children=[force_buck_btn], justify="center")])
 
-auto_buck_btn = v.Btn(children=[TL[40]], width="50%")
+auto_buck_btn = v.Btn(children=[TL[40]], width="50%", max_width=500)
 auto_buck_btn.on_event('click', automatic_buckingham)
 
 box5 = v.Container(children=[v.Row(children=[auto_buck_btn], justify="center")])
@@ -2129,24 +2506,26 @@ wished_size_entry.on_event("change", check_size)
 gen_DOE_btn = v.Btn(children=["Generate DOE"], class_="mx-2", height=55, width=200)
 gen_DOE_btn.on_event("click", gen_doe)
 
-fc_doe = ipf.FileChooser('../')
-fc_doe.filter_pattern = '*.csv'
+doe_tf = v.TextField(label="Filename without .csv extension", outlined=True, v_model="")
+doe_tf.on_event("click", error_end)
+doe_tf.on_event("keydown.enter", hide_doe)
 
 dialog3 = v.Dialog(width='600',
-                   v_model='dialog3',
+                   v_model='dialog',
                    children=[
-                       v.Card(color="blue-grey lighten-4", children=[
-                           v.CardTitle(class_='headline gray lighten-2', primary_title=True, children=[
-                               "Name .csv file"
-                           ]),
-                           v.CardText(children=[
-                               fc_doe,
-                               v.Btn(children=['OK'])
-                           ])
-                       ])
+                        v.Card(color="white", children=[
+                            v.CardTitle(class_='headline gray lighten-2', primary_title=True, children=[
+                                "Name .csv file"
+                                ]),
+                            v.CardText(children=["Current work directory: " + WORKDIR], class_="font-italic"),
+                            v.CardText(children=[
+                                doe_tf,
+                                v.Btn(children=['OK'])
+                            ])
+                        ])
                    ])
 dialog3.v_model = False
-dialog3.children[0].children[1].children[1].on_event("click", hide_doe)
+dialog3.children[0].children[2].children[1].on_event("click", hide_doe)
 
 DOE_rows = v.Col(children=[v.Row(children=[select_DOE, select_log]),
                            v.Row(children=[anticipated_mo_entry, wished_size_entry, gen_DOE_btn, dialog3])])
@@ -2155,10 +2534,6 @@ DOE_cont = v.Col(children=[const_panel, size_info, DOE_rows])
 
 phy_scatter_matrix_output = widgets.Output()
 pi_scatter_matrix_output = widgets.Output()
-pi_scatter_matrix_output_2 = widgets.Output()
-pi_scatter_matrix_output_3 = widgets.Output()
-pi_scatter_matrix_output_4 = widgets.Output()
-pi_scatter_matrix_output_5 = widgets.Output()
 
 customizable_2d_plot_output = widgets.Output()
 select_2d_x = v.Select(label="Select x-axis", outlined=True, items=[], class_="mx-2")
@@ -2166,45 +2541,80 @@ select_2d_x.on_event("change", customize_2d_plot)
 select_2d_y = v.Select(label="Select y-axis", outlined=True, items=[], class_="mx-2")
 select_2d_y.on_event("change", customize_2d_plot)
 range_sliders = v.Col(children=[], style_="margin : 0 10 0 10")
-range_slider_card = v.Card(children=[range_sliders], max_height=500,
+range_slider_card = v.Card(children=[range_sliders], max_height=580,
                            style_='overflow-y: auto; overflow-x: hidden', class_="mx_2")
 
-container_2d = v.Col(children=[v.Row(children=[select_2d_x, select_2d_y]),
-                               v.Row(justify="space-between", children=[customizable_2d_plot_output, range_slider_card])])
+container_2d = v.Col(children=[v.Row(children=[select_2d_x, select_2d_y], align_content="center"),
+                               v.Row(justify="space-around", children=[customizable_2d_plot_output, range_slider_card])
+                               ])
 
 parallel_plot_box = widgets.HBox([])
 
-pi_scatter_matrix_tabs = v.Tabs(children=[v.Tab(children=["Elected (Feas.)"]),
-                                          v.Tab(children=["All (Feas.)"]),
-                                          v.Tab(children=["3 nearest (Feas.)"]),
-                                          v.Tab(children=["Active (Obj.)"]),
-                                          v.Tab(children=["All (Obj.)"]),
-                                          v.TabItem(children=[pi_scatter_matrix_output]),
-                                          v.TabItem(children=[pi_scatter_matrix_output_2]),
-                                          v.TabItem(children=[pi_scatter_matrix_output_3]),
-                                          v.TabItem(children=[pi_scatter_matrix_output_4]),
-                                          v.TabItem(children=[pi_scatter_matrix_output_5])])
+phy_save_btn = v.Icon(children=["mdi-content-save"], large=True, v_on='tooltip.on')
+phy_save_btn.on_event('click', save_phy)
+tool_save_phy = v.Tooltip(bottom=True, v_slots=[{
+                                              'name': 'activator',
+                                              'variable': 'tooltip',
+                                              'children': phy_save_btn,
+                                               }],
+                          children=["Save plot"],
+                          class_="overflow-hidden")
+save_phy_cont = v.Row(children=[v.Spacer(), tool_save_phy])
 
-exp_panel_doe = v.ExpansionPanels(v_model=[0], multiple=True, children=[
+pi_save_btn = v.Icon(children=["mdi-content-save"], large=True, v_on='tooltip.on')
+pi_save_btn.on_event('click', save_pi)
+tool_save_pi = v.Tooltip(bottom=True, v_slots=[{
+                                              'name': 'activator',
+                                              'variable': 'tooltip',
+                                              'children': pi_save_btn,
+                                               }],
+                         children=["Save plot"],
+                         class_="overflow-hidden")
+save_pi_cont = v.Row(children=[v.Spacer(), tool_save_pi])
+
+cus_save_btn = v.Icon(children=["mdi-content-save"], large=True, v_on='tooltip.on')
+cus_save_btn.on_event('click', save_cus)
+tool_save_cus = v.Tooltip(bottom=True, v_slots=[{
+                                              'name': 'activator',
+                                              'variable': 'tooltip',
+                                              'children': cus_save_btn,
+                                               }],
+                          children=["Save plot"],
+                          class_="overflow-hidden")
+
+para_save_btn = v.Icon(children=["mdi-content-save"], large=True, v_on='tooltip.on')
+para_save_btn.on_event('click', save_para)
+tool_save_para = v.Tooltip(bottom=True, v_slots=[{
+                                              'name': 'activator',
+                                              'variable': 'tooltip',
+                                              'children': para_save_btn,
+                                               }],
+                           children=["Save plot"],
+                           class_="overflow-hidden")
+save_para_cont = v.Row(children=[v.Spacer(), tool_save_para])
+
+container_2d.children[0].children = container_2d.children[0].children + [tool_save_cus]
+
+exp_panel_doe = v.ExpansionPanels(v_model=[0], multiple=True, style_='overflow-y: hidden',  children=[
     v.ExpansionPanel(children=[v.ExpansionPanelHeader(color="grey lighten-3",
                                                       class_='title font-weight-regular',
                                                       children=["Scatter plot matrix (Physical Parameters)"]),
-                               v.ExpansionPanelContent(children=[v.Card(children=[phy_scatter_matrix_output])])
+                               v.ExpansionPanelContent(children=[save_phy_cont, phy_scatter_matrix_output])
                                ]),
     v.ExpansionPanel(children=[v.ExpansionPanelHeader(color="grey lighten-3",
                                                       class_='title font-weight-regular',
                                                       children=["Scatter plot matrix (Pi numbers)"]),
-                               v.ExpansionPanelContent(children=[pi_scatter_matrix_tabs])
+                               v.ExpansionPanelContent(children=[save_pi_cont, pi_scatter_matrix_output])
                                ]),
     v.ExpansionPanel(children=[v.ExpansionPanelHeader(color="grey lighten-3",
                                                       class_='title font-weight-regular',
                                                       children=["2D Customizable plot"]),
-                               v.ExpansionPanelContent(children=[v.Card(children=[container_2d])])
+                               v.ExpansionPanelContent(children=[container_2d])
                                ]),
     v.ExpansionPanel(children=[v.ExpansionPanelHeader(color="grey lighten-3",
                                                       class_='title font-weight-regular',
                                                       children=["Parallel plot"]),
-                               v.ExpansionPanelContent(children=[v.Card(children=[parallel_plot_box])])
+                               v.ExpansionPanelContent(children=[save_para_cont, parallel_plot_box])
                                ])
 ])
 
@@ -2228,17 +2638,19 @@ doe_box = widgets.VBox([doe_alert_cont, top_cont, DOE_cont])
 
 result_info = v.Alert(type="info", border="top", children=["Import result supports only .csv files"])
 
-empty_csv_btn = v.Btn(children=["Generate empty csv"], width="30%", height=55, class_="mx-2")
+empty_csv_btn = v.Btn(children=["Generate empty csv"], width="30%", max_width=400, height=55, class_="mx-2")
 empty_csv_btn.on_event("click", gen_empty_csv)
-result_btn = v.Btn(children=["Import result"], width="30%", height=55, class_="mx-2")
+result_btn = v.Btn(children=["Import result"], width="30%", height=55, max_width=400, class_="mx-2")
 result_btn.on_event("click", result_import)
 
 result_alert = v.Alert(type="error", dense=True, outlined=True, children=["Error"])
 result_warning = v.Alert(type="warning", dense=True, outlined=True, children=["No physical parameter defined"])
 result_alert_cont = v.Container(children=[])
 
-fc_res = ipf.FileChooser('../')
+fc_res = ipf.FileChooser(WORKDIR)
 fc_res.filter_pattern = '*.csv'
+fc_res._show_dialog()
+fc_res.register_callback(hide_res_import)
 
 dialog4 = v.Dialog(width='600',
                    v_model='dialog3',
@@ -2248,32 +2660,32 @@ dialog4 = v.Dialog(width='600',
                                "Choose .csv file"
                            ]),
                            v.CardText(children=[
-                               fc_res,
-                               v.Btn(children=['OK'])
+                               fc_res
                            ])
                        ])
                    ])
 dialog4.v_model = False
-dialog4.children[0].children[1].children[1].on_event("click", hide_res_import)
 
-fc_res_2 = ipf.FileChooser('../')
-fc_res_2.filter_pattern = '*.csv'
+empty_tf = v.TextField(label="Filename without .csv extension", outlined=True, v_model="")
+empty_tf.on_event("click", error_end)
+empty_tf.on_event("keydown.enter", hide_empty_csv)
 
 dialog5 = v.Dialog(width='600',
-                   v_model='dialog3',
+                   v_model='dialog',
                    children=[
-                       v.Card(color="blue-grey lighten-4", children=[
-                           v.CardTitle(class_='headline gray lighten-2', primary_title=True, children=[
-                               "Name .csv file"
-                           ]),
-                           v.CardText(children=[
-                               fc_res_2,
-                               v.Btn(children=['OK'])
-                           ])
-                       ])
+                        v.Card(color="blue-grey lighten-4", children=[
+                            v.CardTitle(class_='headline gray lighten-2', primary_title=True, children=[
+                                "Name .csv file"
+                                ]),
+                            v.CardText(children=["Current work directory: " + WORKDIR], class_="font-italic"),
+                            v.CardText(children=[
+                                empty_tf,
+                                v.Btn(children=['OK'])
+                            ])
+                        ])
                    ])
 dialog5.v_model = False
-dialog5.children[0].children[1].children[1].on_event("click", hide_empty_csv)
+dialog5.children[0].children[2].children[1].on_event("click", hide_empty_csv)
 
 res_but_cont = v.Row(justify="center", children=[empty_csv_btn, result_btn])
 
@@ -2318,16 +2730,38 @@ dependency_checkboxes.layout.justify_content = "space-between"
 checkboxes_cont = widgets.HBox([dependency_checkboxes])
 checkboxes_cont.layout.justify_content = "center"
 
+sen_save_btn = v.Icon(children=["mdi-content-save"], large=True, v_on='tooltip.on')
+sen_save_btn.on_event('click', save_sen)
+tool_save_sen = v.Tooltip(bottom=True, v_slots=[{
+                                              'name': 'activator',
+                                              'variable': 'tooltip',
+                                              'children': sen_save_btn,
+                                               }],
+                          children=["Save plot"],
+                          class_="overflow-hidden")
+save_sen_cont = v.Row(children=[v.Spacer(), tool_save_sen])
+
+dep_save_btn = v.Icon(children=["mdi-content-save"], large=True, v_on='tooltip.on')
+dep_save_btn.on_event('click', save_dep)
+tool_save_dep = v.Tooltip(bottom=True, v_slots=[{
+                                              'name': 'activator',
+                                              'variable': 'tooltip',
+                                              'children': dep_save_btn,
+                                               }],
+                          children=["Save plot"],
+                          class_="overflow-hidden")
+save_dep_cont = v.Row(children=[v.Spacer(), tool_save_dep])
+
 exp_panel_dependency = v.ExpansionPanels(v_model=[0], multiple=True, children=[
     v.ExpansionPanel(children=[v.ExpansionPanelHeader(color="grey lighten-3",
                                                       class_='title font-weight-regular',
                                                       children=["Sensitivity analysis"]),
-                               v.ExpansionPanelContent(children=[sensitivity_info, sensitivity_output])
+                               v.ExpansionPanelContent(children=[sensitivity_info, save_sen_cont, sensitivity_output])
                                ]),
     v.ExpansionPanel(children=[v.ExpansionPanelHeader(color="grey lighten-3",
                                                       class_='title font-weight-regular',
                                                       children=["Dependency analysis"]),
-                               v.ExpansionPanelContent(children=[threshold_cont, dependency_output])
+                               v.ExpansionPanelContent(children=[threshold_cont, save_dep_cont, dependency_output])
                                ])
     ], class_="overflow-hidden")
 exp_panel_cont = v.Container(children=[exp_panel_dependency])
@@ -2341,7 +2775,7 @@ pi_removal_card = v.Card(children=[v.CardTitle(children=["Remove pi number"], cl
                                    update_plots_row])
 pi_removal_cont = v.Container(children=[pi_removal_card])
 
-dependency_set = v.Card(color="grey lighten-3", margin=10, width=600,
+dependency_set = v.Card(color="grey lighten-3", margin=10, width=500,
                         children=[v.CardTitle(class_="title font-weight-regular",
                                               children=["No pi set defined"]),
                                   v.CardText(class_="body-1", children=[])])
@@ -2357,6 +2791,9 @@ dependency_vbox.layout.justify_content = "space-between"
 reg_alert_cont = v.Col(children=[])
 reg_no_result_error = v.Alert(type="error", dense=True, outlined=True, children=["No result imported"])
 reg_no_pi_set_error = v.Alert(type="error", dense=True, outlined=True, children=["No pi set defined"])
+reg_info = v.Alert(type="info", border="top", class_="mx-2", style_="margin : 12px 0px 0px 0px",
+                   children=["If the number of points of the result > 10 * the number of models"
+                             " the cross-validation step will be skipped"])
 
 select_pi0 = v.Select(v_model="", label="Select pi0 (output)", outlined=True,
                       items=[])
@@ -2364,19 +2801,47 @@ select_pi0 = v.Select(v_model="", label="Select pi0 (output)", outlined=True,
 model_order_entry = v.TextField(v_model=1,
                                 label="Model order",
                                 type="number",
-                                width="20%",
-                                outlined=True,
-                                class_="mx-2")
+                                outlined=True)
+model_order_entry.on_event("click", error_end)
 
 select_reg_criteria = v.Select(v_model="max(error)", label="Select regression criteria", outlined=True,
                                items=["max(error)", "avg(error magnitude)", "avg(error)", "sigma(error)"])
 
-models_btn = v.Btn(children=["Show models"], class_="mx-2", height=55)
+models_btn = v.Btn(children=["Show models"], class_="mx-2", height=55, width=300)
 models_btn.on_event("click", regression_models)
+models_btn_row = v.Row(children=[models_btn], justify="center")
 
-regression_parameters = v.Row(children=[select_pi0, model_order_entry, select_reg_criteria, models_btn])
+regression_parameters = v.Row(children=[dependency_set,
+                                        v.Col(children=[select_pi0, select_reg_criteria, model_order_entry,
+                                                        models_btn_row], class_="mx-2"),
+                                        v.Spacer()
+                                        ], justify="center")
+
+models_save_btn = v.Icon(children=["mdi-content-save"], large=True, v_on='tooltip.on')
+models_save_btn.on_event('click', save_models)
+tool_save_models = v.Tooltip(bottom=True, v_slots=[{
+                                              'name': 'activator',
+                                              'variable': 'tooltip',
+                                              'children': models_save_btn,
+                                               }],
+                             children=["Save plot"],
+                             class_="overflow-hidden")
+save_models_cont = v.Row(children=[v.Spacer(), tool_save_models])
+
+reg_save_btn = v.Icon(children=["mdi-content-save"], large=True, v_on='tooltip.on', disabled=True)
+reg_save_btn.on_event('click', save_reg)
+tool_save_reg = v.Tooltip(bottom=True, v_slots=[{
+                                              'name': 'activator',
+                                              'variable': 'tooltip',
+                                              'children': reg_save_btn,
+                                               }],
+                          children=["Save plot"],
+                          class_="overflow-hidden")
+save_reg_cont = v.Row(children=[v.Spacer(), tool_save_reg])
 
 models_output = widgets.Output()
+models_output.layout.border = "2px solid black"
+models_output_col = v.Col(children=[save_models_cont, models_output])
 
 nb_terms_slider = v.Slider(v_model=0,
                            class_="mx-2",
@@ -2385,67 +2850,123 @@ nb_terms_slider = v.Slider(v_model=0,
                            step=1,
                            ticks="always",
                            tick_size="4")
-nb_terms_slider.on_event("click", error_end)
-nb_terms_slider_row = v.Row(children=[nb_terms_slider], style_="margin : 0px 47px 0px 72px")
-
-regression_btn = v.Btn(children=["Perform regression"], class_="mx-2", height="55")
-regression_btn.on_event("click", perform_regression)
-regression_btn_row = v.Row(justify="center", children=[regression_btn])
-
-regression_col = v.Col(children=[nb_terms_slider_row, regression_btn_row])
+nb_terms_slider.on_event("change", perform_regression)
+nb_terms_slider_row = v.Row(children=[nb_terms_slider], style_=f"margin : 0px 118px 0px 56px")
 
 regression_output = widgets.Output()
 
 expression_cont = v.Container(children=[], style_="margin : 0px 10px 10px 10px")
 expression_card = v.Card(children=[v.CardTitle(class_="title font-weight-medium", children=["Model expression:"]),
-                                   expression_cont])
+                                   expression_cont], style_='overflow-x: auto')
 
-regression_cont = v.Col(children=[reg_alert_cont, set_box_2, regression_parameters, models_output])
+regression_cont = v.Col(children=[reg_alert_cont, regression_parameters, reg_info])
 
 # --------- Main widgets------------------------------------------------------------------------------------------------
 
-tabs = v.Tabs(v_model="tab", children=[v.Tab(children=["Physical parameters"]),
+tabs = v.Tabs(v_model="tab", children=[v.Tab(children=["Tutorial"]),
+                                       v.Tab(children=["Physical parameters"]),
                                        v.Tab(children=["Buckingham theorem"]),
                                        v.Tab(children=["DOE"]),
                                        v.Tab(children=["Result import"]),
                                        v.Tab(children=["Dependency analysis"]),
                                        v.Tab(children=["Regression"]),
+                                       v.TabItem(children=[tutorial_box]),
                                        v.TabItem(children=[vbox]),
                                        v.TabItem(children=[vbox2]),
                                        v.TabItem(children=[doe_box]),
                                        v.TabItem(children=[result_box]),
                                        v.TabItem(children=[dependency_vbox]),
-                                       v.TabItem(children=[regression_cont]), ],
+                                       v.TabItem(children=[regression_cont])],
               background_color="grey lighten-3", center_active=True)
 tabs.on_event('change', change_tab)
 
-fc_save = ipf.FileChooser('../')
-fc_save.filter_pattern = '*.txt'
+fc_dir = ipf.FileChooser('../')
+fc_dir.show_only_dirs = True
+fc_dir.register_callback(hide_dir)
+fc_dir._show_dialog()
 
-save_btn = v.Btn(color='blue darken-2', class_="mx-2", dark=True, width=300, children=['Save'])
+dir_btn = v.Icon(children=["mdi-file-tree"], large=True, class_="mx-2", v_on='tooltip.on')
+dir_btn.on_event("click", choose_dir)
+tool_dir = v.Tooltip(bottom=True, v_slots=[{
+                                            'name': 'activator',
+                                            'variable': 'tooltip',
+                                            'children': dir_btn,
+                                            }],
+                     children=["Choose working directory"])
+dialog_dir = v.Dialog(width='600',
+                      v_model='dialog',
+                      children=[
+                          v.Card(color="green lighten-4", children=[
+                              v.CardTitle(class_='headline gray lighten-2', primary_title=True, children=[
+                                  "Choose working directory"]),
+                              v.CardText(children=["Current work directory: " + WORKDIR], class_="font-italic"),
+                              v.CardText(children=[fc_dir], class_="body-1")
+                          ])
+                      ])
+dialog_dir.v_model = False
+
+save_btn = v.Icon(children=["mdi-content-save"], large=True, class_="mx-2", v_on='tooltip.on')
 save_btn.on_event('click', save)
+tool_save = v.Tooltip(bottom=True, v_slots=[{
+                                            'name': 'activator',
+                                            'variable': 'tooltip',
+                                            'children': save_btn,
+                                            }],
+                      children=["Save"])
+
+save_as_btn = v.Icon(children=["mdi-content-save-edit"], large=True, class_="mx-2", v_on='tooltip.on')
+save_as_btn.on_event('click', save_as)
+tool_save_as = v.Tooltip(bottom=True, v_slots=[{
+                                              'name': 'activator',
+                                              'variable': 'tooltip',
+                                              'children': save_as_btn,
+                                               }],
+                         children=["Save as"])
+
+save_as_tf = v.TextField(label="Filename without .txt extension", outlined=True, v_model="")
+save_as_tf.on_event("click", error_end)
+save_as_tf.on_event("keydown.enter", hide_save_as)
 
 dialog = v.Dialog(width='600',
                   v_model='dialog',
                   children=[
                       v.Card(color="blue lighten-4", children=[
                           v.CardTitle(class_='headline gray lighten-2', primary_title=True, children=[
-                              "Save"
+                              "Save as"
                           ]),
+                          v.CardText(children=["Current work directory: " + WORKDIR], class_="font-italic"),
                           v.CardText(children=[
-                              fc_save,
+                              save_as_tf,
                               v.Btn(color='primary', children=['OK'])
                           ])
                       ])
                   ])
 dialog.v_model = False
-dialog.children[0].children[1].children[1].on_event("click", hide_sd)
+dialog.children[0].children[2].children[1].on_event("click", hide_save_as)
 
-fc_load = ipf.FileChooser('../')
+save_plots_btn = v.Icon(children=["mdi-image-multiple"], large=True, class_="mx-2", v_on='tooltip.on')
+save_plots_btn.on_event("click", save_plots)
+tool_save_plots = v.Tooltip(bottom=True, v_slots=[{
+                                            'name': 'activator',
+                                            'variable': 'tooltip',
+                                            'children': save_plots_btn,
+                                            }],
+                            children=["Save all generated plots"])
+
+fc_load = ipf.FileChooser(WORKDIR)
+fc_load._show_dialog()
 fc_load.filter_pattern = '*.txt'
+fc_load.register_callback(hide_ld)
 
-load_btn = v.Btn(color='orange darken-2', class_="mx-2", dark=True, width=300, children=['Load'])
+load_btn = v.Icon(children=["mdi-folder"], large=True, class_="mx-2", v_on='tooltip.on')
 load_btn.on_event("click", load)
+
+tool_load = v.Tooltip(bottom=True, v_slots=[{
+                                            'name': 'activator',
+                                            'variable': 'tooltip',
+                                            'children': load_btn,
+                                            }],
+                      children=["Load"])
 
 dialog2 = v.Dialog(width='600',
                    v_model='dialog2',
@@ -2453,16 +2974,26 @@ dialog2 = v.Dialog(width='600',
                        v.Card(color="orange lighten-4", children=[
                            v.CardTitle(class_='headline gray lighten-2', primary_title=True, children=[
                                "Load"
-                           ]),
-                           v.CardText(children=[
-                               fc_load,
-                               v.Btn(color='orange', children=['OK'])
+                                ]),
+                           v.CardText(children=[fc_load])
                            ])
                        ])
-                   ])
 dialog2.v_model = False
-dialog2.children[0].children[1].children[1].on_event("click", hide_ld)
 
-sl_tool = v.Toolbar(children=[dialog, save_btn, dialog2, load_btn], color="grey lighten-3")
+tool_icons_card = v.Card(children=[tool_dir, dialog_dir, tool_save_as, dialog, tool_save, dialog2, tool_save_plots,
+                                   tool_load],
+                         class_="mx-2")
+
+log_class = "mx-2; pa-0; overflow-x: auto; overflow-y:auto"
+logs_card = v.Sheet(children=[], height=37, rounded=True, width="50%", class_=log_class,
+                    style_="flex-wrap: nowrap;overflow-x: auto", elevation=2)
+logs_card.class_ = logs_card.class_ + "; grey--text"
+logs_card.children = [v.Html(tag='div', children=["Default work directory: " + WORKDIR], class_="text-left py-2 px-2")]
+
+img_cont = v.Row(children=[v.Img(src="logo_cut.png", max_height="55px", max_width="200px", contain=False,
+                                 calss_="mr-3")],
+                 justify="end")
+sl_tool = v.Toolbar(children=[tool_icons_card, logs_card, img_cont], color="grey lighten-3",
+                    justify="space-between")
 
 main = v.Card(children=[sl_tool, tabs])

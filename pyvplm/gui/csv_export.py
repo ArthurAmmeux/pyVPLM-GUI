@@ -80,7 +80,7 @@ def check_content(result_df):
         raise ValueError(err_str[:-2])
 
 
-def read_csv(path, physical_parameters):
+def read_csv(path, physical_parameters, round_=False):
     with open(path) as csv_file:
         csv_reader = csv.DictReader(csv_file)
         line_count = 0
@@ -93,8 +93,21 @@ def read_csv(path, physical_parameters):
                 df_headers = list(row.keys())
                 headers = headers + list(row.keys())
                 line_count += 1
-            df_items.append(list(row.values()))
+            val = list(row.values())
+            app = []
+            for v in val:
+                try:
+                    app.append(float(v))
+                except Exception:
+                    raise ValueError("CSV contains non numbers")
+            df_items.append(app)
             row['Measure'] = line_count
+            if round_:
+                for key in row.keys():
+                    try:
+                        row[key] = float('{:g}'.format(float(row[key])))
+                    except Exception:
+                        raise ValueError("CSV contains non numbers")
             items.append(row)
             line_count += 1
         result_df = pd.DataFrame(df_items, columns=df_headers)
@@ -105,8 +118,6 @@ def read_csv(path, physical_parameters):
 
 if __name__ == '__main__':
     from pyvplm.core.definition import PositiveParameter, PositiveParameterSet
-    #doePI = pandas.read_excel('./pi_analysis_example.xls')
-    #doePI = doe[['pj', 'pfe', 'pi2', 'pi3', 'pi4', 'pi5', 'pi6']].values
     pi1 = PositiveParameter('pi1', [0.1, 1], '', 'p_j')
     pi2 = PositiveParameter('pi2', [0.1, 1], '', 'p_fe')
     pi3 = PositiveParameter('pi3', [0.1, 1], '', 'd_i*d_e**-1')
