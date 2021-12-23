@@ -17,6 +17,18 @@ def open_csv_file(f_name):
 
 
 def generate_csv(doeX, file_name, parameter_set, out_headers):
+    """
+    Parameters
+    ----------
+    doeX DOE points in physical space
+    file_name name of the .csv file (with extension)
+    parameter_set current physical parameter set (PositiveParameterSet)
+    out_headers Headers of output physical parameters (List of str)
+
+    Returns
+    -------
+
+    """
     _, file_name = open_csv_file(file_name)
     with open(file_name, 'w', encoding='UTF8', newline='') as out_file:
         writer = csv.writer(out_file)
@@ -32,6 +44,15 @@ def generate_csv(doeX, file_name, parameter_set, out_headers):
 
 
 def format_headers(headers):
+    """
+    Parameters
+    ----------
+    headers Headers to be formatted (List of str)
+
+    Returns A list of dict, the right format for v.DataTable headers
+    -------
+
+    """
     out_headers = []
     for header in headers:
         header_dict = {'text': header, 'sortable': True, 'value': header}
@@ -40,6 +61,16 @@ def format_headers(headers):
 
 
 def check_headers(df_headers, physical_parameters):
+    """
+    Parameters
+    ----------
+    df_headers Headers to be checked
+    physical_parameters Current set of physical parameters (PositiveParameterSet)
+
+    Returns Raises exceptions if the headers are invalid (ex: corresponds to no physical parameter)
+    -------
+
+    """
     params = list(physical_parameters.dictionary.keys())
     raw_headers = []
     units = []
@@ -49,7 +80,7 @@ def check_headers(df_headers, physical_parameters):
             raw_headers.append(spt[0].strip())
             units.append(spt[1].split("]")[0])
         except Exception:
-            raise SyntaxError("Invalid csv file")
+            raise SyntaxError("Invalid csv headers")
     if len(raw_headers) < len(params):
         raise ValueError(
             f"Not enough columns ({len(raw_headers)}, should be {len(params)}), physical parameter missing")
@@ -57,17 +88,36 @@ def check_headers(df_headers, physical_parameters):
         raise ValueError(
             f"Too many columns ({len(raw_headers)}, should be {len(params)}),"
             f" inconsistent with defined physical parameters")
-    for i in range(len(raw_headers)):
-        if raw_headers[i] != params[i]:
+    remaining_params = params.copy()
+    for i, header in enumerate(raw_headers):
+        valid = False
+        j_ = 0
+        for j, param in enumerate(remaining_params):
+            if header == param:
+                valid = True
+                j_ = j
+                break
+        if not valid:
             raise ValueError(
-                f"CSV headers and defined physical parameters do not match: {raw_headers[i]} =/= {params[i]}")
-        cur_unit = physical_parameters.dictionary[params[i]].defined_units
-        if units[i] != cur_unit:
-            raise ValueError(
-                f"CSV units and defined physical parameters units do not match: {units[i]} =/= {cur_unit}")
+                f"CSV headers and defined physical parameters do not match: {header} =/= {remaining_params[0]}")
+        else:
+            cur_unit = physical_parameters.dictionary[remaining_params[j_]].defined_units
+            remaining_params.pop(j_)
+            if units[i] != cur_unit:
+                raise ValueError(
+                    f"CSV units and defined physical parameters units do not match: {units[i]} =/= {cur_unit}")
 
 
 def check_content(result_df):
+    """
+    Parameters
+    ----------
+    result_df DataFrame with the result to be imported
+
+    Returns Raises exceptions if the content of the DataFrame is invalid (ex: empty cells)
+    -------
+
+    """
     errors = []
     for col in result_df.columns:
         chk_sum = result_df[col].isnull().sum()
@@ -81,8 +131,24 @@ def check_content(result_df):
 
 
 def read_csv(path, physical_parameters, round_=False):
+    """
+    Parameters
+    ----------
+    path Path to the .csv file
+    physical_parameters Current set of physical parameters (PositiveParameterSet)
+    round_ Rounds numbers to display for better readability
+
+    Returns The headers and items to be displayed by v.DataTable as well as the DataFrame to be put in memory
+    -------
+
+    """
     with open(path) as csv_file:
-        csv_reader = csv.DictReader(csv_file)
+        raw_file = csv_file.read()
+        if ";" in raw_file:
+            raw_file = raw_file.replace(",", ".")
+            raw_file = raw_file.replace(";", ",")
+        csv_spt = raw_file.splitlines()
+        csv_reader = csv.DictReader(csv_spt)
         line_count = 0
         df_headers = []
         df_items = []
@@ -100,6 +166,8 @@ def read_csv(path, physical_parameters, round_=False):
                     app.append(float(v))
                 except Exception:
                     raise ValueError("CSV contains non numbers")
+                if float(v) <= 0:
+                    raise ValueError(f"Csv contains 0 or negative values: {float(v)}")
             df_items.append(app)
             row['Measure'] = line_count
             if round_:
@@ -116,6 +184,7 @@ def read_csv(path, physical_parameters, round_=False):
         return format_headers(headers), items, result_df
 
 
+# For testing purposes only
 if __name__ == '__main__':
     from pyvplm.core.definition import PositiveParameter, PositiveParameterSet
     pi1 = PositiveParameter('pi1', [0.1, 1], '', 'p_j')

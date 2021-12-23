@@ -9,6 +9,15 @@ def drop_constant_column(dataframe):
 
 
 def get_constant_pi(df):
+    """
+    Parameters
+    ----------
+    df Input DataFrame
+
+    Returns The name of columns that are constant (always same value)
+    -------
+
+    """
     constants = []
     for col in df.columns:
         items = list(df[col])
@@ -24,6 +33,7 @@ def get_constant_pi(df):
     return constants
 
 
+# For testing purposes
 if __name__ == '__main__':
     df = pd.DataFrame([[1, 2, 3], [0, 0, 3], [2, 5, 3]])
     print(df)

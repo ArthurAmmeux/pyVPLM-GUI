@@ -1,4 +1,4 @@
-TEXT_LIST = ["Please specify a name", "Invalid character", "Name already exists", "Invalid character: |",
+TEXT_LIST = ["Please specify a name", "Invalid character", "Name already exists", "Invalid character for description",
              "Please specify a unit", "Unrecognized unit", "Please specify upper bound", "Bounds must be numbers",
              "Bounds must be strictly positive", "Lower bound must be strictly inferior to upper bound", "Output",
              "Check pi set", "Output parameters are found in multiple pi numbers", "Pi set valid",

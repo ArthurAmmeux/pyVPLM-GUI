@@ -17,6 +17,15 @@ def open_file(f_name):
 
 
 def parameter_to_str(param: PositiveParameter):
+    """
+    Parameters
+    ----------
+    param PositiveParameter
+
+    Returns A string representation
+    -------
+
+    """
     bounds = "#"
     if param.defined_bounds:
         bounds = str(param.defined_bounds)[1:-1]
@@ -27,6 +36,15 @@ def parameter_to_str(param: PositiveParameter):
 
 
 def parameter_set_to_str(param_set: PositiveParameterSet):
+    """
+    Parameters
+    ----------
+    param_set PositiveParameterSet
+
+    Returns A string representation
+    -------
+
+    """
     if param_set is None:
         return "None"
     rtn = ""
@@ -36,6 +54,15 @@ def parameter_set_to_str(param_set: PositiveParameterSet):
 
 
 def pi_list_to_str(pi_list):
+    """
+    Parameters
+    ----------
+    pi_list List of pi expression
+
+    Returns A string representation
+    -------
+
+    """
     wrt = ""
     if len(pi_list) > 0:
         for eq in pi_list:
@@ -45,6 +72,16 @@ def pi_list_to_str(pi_list):
 
 
 def str_to_pi_list(inp):
+    """
+
+    Parameters
+    ----------
+    inp Input string
+
+    Returns A list of pi expressions
+    -------
+
+    """
     lines = inp.strip().splitlines()
     lis = []
     for line in lines:
@@ -55,6 +92,15 @@ def str_to_pi_list(inp):
 
 
 def str_to_parameter(line):
+    """
+    Parameters
+    ----------
+    line String
+
+    Returns PositiveParameter
+    -------
+
+    """
     spt = line.split('|')
     if spt[3] == "#":
         if spt[4] == "#":
@@ -68,6 +114,15 @@ def str_to_parameter(line):
 
 
 def str_to_parameter_set(inp):
+    """
+    Parameters
+    ----------
+    inp Input string
+
+    Returns A PositiveParameterSet or None if the string is ""
+    -------
+
+    """
     if inp.strip() == "None":
         return None
     lines = inp.strip().splitlines()
@@ -78,6 +133,15 @@ def str_to_parameter_set(inp):
 
 
 def nested_list_to_list(n_lis):
+    """
+    Parameters
+    ----------
+    n_lis Nested list
+
+    Returns A list with only elements (that are not lists themselves)
+    -------
+
+    """
     lis = []
     for item in n_lis:
         lis.append(item[0])
@@ -85,6 +149,15 @@ def nested_list_to_list(n_lis):
 
 
 def str_to_list(string):
+    """
+    Parameters
+    ----------
+    string String representation of a list
+
+    Returns A List
+    -------
+
+    """
     if "[" and "]" in string:
         string = string[1:-1]
         spt = string.split(",")
@@ -98,6 +171,35 @@ def str_to_list(string):
 def save(file_name, items, buck_area, force_area, auto_items, tab2_state, physical_params, pi_sets, chosen_pi_set,
          pi_lists, chosen_pi_list, phy_const, pi_const, doe_params, doe, result, dep_slider, dep_check_state,
          reg_pi_list, reg_state, models):
+    """
+    Parameters
+    ----------
+    file_name: File path
+    items: Physical parameters DataTable items
+    buck_area: Content of simple Buckingham area
+    force_area: Content of force Buckingham area
+    auto_items: Content of automatic Buckingham DataTable
+    tab2_state: State of Buckingham Theorem tab
+    physical_params: Defined physical parameters
+    pi_sets: List of all generated pi sets
+    chosen_pi_set: The current chosen pi set
+    pi_lists: List of all pi lists
+    chosen_pi_list: The current chosen pi list
+    phy_const: Content of physical parameter constraints area
+    pi_const: Content of pi constraints area
+    doe_params: Parameters to generate a DOE
+    doe: The last generated DOE
+    result: The last imported result
+    dep_slider: R^2 threshold slider state
+    dep_check_state: Dependency analysis tab checkboxes state
+    reg_pi_list: Effective pi list for regression
+    reg_state: State of the regression tab
+    models: Computed regression models
+
+    Returns Saves all this data in a .txt at the file name path
+    -------
+
+    """
     f = open_file(file_name)[0]
     wrt = ""
     # Physical parameters [0]
@@ -196,7 +298,8 @@ def save(file_name, items, buck_area, force_area, auto_items, tab2_state, physic
         rpl = rpl[:-1]
     wrt += rpl
     wrt += "\n---\n"  # State of the widgets in the regression tab [16]
-    wrt += reg_state[0] + "|" + reg_state[1] + "|" + str(reg_state[2]) + "|" + str(reg_state[3])
+    wrt += reg_state[0] + "|" + reg_state[1] + "|" + str(reg_state[2]) + "|" + str(reg_state[3]) + "|" + \
+        str(reg_state[4])
     wrt += "\n---\n"  # Regression models [17]
     str_models = ""
     if models:
@@ -218,6 +321,15 @@ def save(file_name, items, buck_area, force_area, auto_items, tab2_state, physic
 
 
 def load(f_name):
+    """
+    Parameters
+    ----------
+    f_name File path
+
+    Returns Loads all the parameters saved by the saved function
+    -------
+
+    """
     try:
         f = open(f_name, "r")
     except FileNotFoundError:
@@ -353,7 +465,7 @@ def load(f_name):
     reg_state = spt_save[16].strip().split("|")  # State of the widgets in the regression tab [16]
     models = {}
     spt_models = spt_save[17].strip().split("\n+++\n")  # Regression models [17]
-    if spt_models:
+    if spt_models and spt_models[0]:
         spt_expr = spt_models[0].split("\n|||\n")
         for i in range(len(spt_expr)):
             lines = spt_expr[i].splitlines()

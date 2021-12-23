@@ -1,4 +1,13 @@
 def format_pi_set(pi_set):
+    """
+    Parameters
+    ----------
+    pi_set Positive ParameterSET representation (str)
+
+    Returns A simpler representation
+    -------
+
+    """
     lines = pi_set.splitlines()
     new_pi_set = ""
     for i in range(len(lines)):
@@ -15,6 +24,15 @@ def format_pi_set(pi_set):
 
 
 def pi_list_to_str(pi_list):
+    """
+    Parameters
+    ----------
+    pi_list list of pi number expressions
+
+    Returns A string representation
+    -------
+
+    """
     out_set = ""
     if len(pi_list) > 0:
         for i in range(len(pi_list)):
@@ -26,6 +44,16 @@ def pi_list_to_str(pi_list):
 
 
 def pi_sub_list_to_str(pi_list, index):
+    """
+    Parameters
+    ----------
+    pi_list list of pi number expressions
+    index indexes of chosen pi numbers
+
+    Returns A string with only the chosen pi numbers
+    -------
+
+    """
     out_set = ""
     if len(pi_list) > 0:
         for i in range(len(pi_list)):
@@ -35,6 +63,15 @@ def pi_sub_list_to_str(pi_list, index):
 
 
 def format_auto_pi_set(pi_set):
+    """
+    Parameters
+    ----------
+    pi_set Pi set in the automatic buckingham DataTable format
+
+    Returns Pi set in the Simple Buckingham format
+    -------
+
+    """
     spt = pi_set.split('|')
     f_pi_set = ""
     for ps in spt:
@@ -45,11 +82,30 @@ def format_auto_pi_set(pi_set):
 
 
 def format_input(inp, index):
+    """
+    Parameters
+    ----------
+    inp input expression
+    index Index of the pi number
+
+    Returns The full expression
+    -------
+
+    """
     return f"Pi{index} = {inp}"
 
 
 def format_force_area(text):
-    if text is None:
+    """
+    Parameters
+    ----------
+    text Input text from user
+
+    Returns Formatted text
+    -------
+
+    """
+    if text.strip() is None:
         raise SyntaxError("No pi number defined")
     lines = text.splitlines()
     if len(lines) == 0:
@@ -75,6 +131,15 @@ def format_force_area(text):
 
 
 def get_pi_index(pi_set):
+    """
+    Parameters
+    ----------
+    pi_set Pi set in Simple Buckingham format
+
+    Returns The index of the next pi number to ba added to the set
+    -------
+
+    """
     if pi_set is not None:
         return len(pi_set.splitlines()) + 1
     else:
@@ -82,6 +147,15 @@ def get_pi_index(pi_set):
 
 
 def format_area(area):
+    """
+    Parameters
+    ----------
+    area Multiple full pi expressions
+
+    Returns A tuple of short expressions
+    -------
+
+    """
     lines = area.splitlies()
     lis = []
     for line in lines:
@@ -92,6 +166,17 @@ def format_area(area):
 
 
 def check_outputs(pi_list, parameter_set, outputs):
+    """
+    Parameters
+    ----------
+    pi_list List of all pi number expressions
+    parameter_set Physical parameter set (PositiveParameterSet)
+    outputs Number of output physical parameters
+
+    Returns True if every output parameter is present at most in one pi number
+    -------
+
+    """
     parameter_list = []
     for param_name in parameter_set.dictionary:
         parameter_list.append(param_name)
@@ -107,6 +192,17 @@ def check_outputs(pi_list, parameter_set, outputs):
 
 
 def output_pi_index(pi_list, parameter_set, outputs):
+    """
+    Parameters
+    ----------
+    pi_list List of full pi expressions
+    parameter_set Physical parameter set (PositiveParameterSet)
+    outputs Number of output physical parameters
+
+    Returns A list of all indices of output pi numbers (pi numbers containing at least one output parameter)
+    -------
+
+    """
     if pi_list:
         output_index = []
         parameter_list = []
@@ -122,6 +218,16 @@ def output_pi_index(pi_list, parameter_set, outputs):
 
 
 def is_in_pi(param_name, pi_exp):
+    """
+    Parameters
+    ----------
+    param_name Name of a particular physical parameter
+    pi_exp Pi expression
+
+    Returns True if the parameter is in pi_exp
+    -------
+
+    """
     _vars = pi_exp.split('*')
     raw_vars = []
     for _var in _vars:

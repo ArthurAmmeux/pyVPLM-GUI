@@ -1,6 +1,4 @@
 # Import pyVPLM packages
-import matplotlib
-
 from pyvplm.core.definition import PositiveParameter, PositiveParameterSet
 from pyvplm.addon import variablepowerlaw as vpl
 from pyvplm.addon import pixdoe as doe
@@ -14,8 +12,9 @@ import constant_pi as cpi
 import number_of_coeff as noc
 import dependency_plot as dpp
 import save_plots as spl
+import save_py_func as spf
 
-# Import libs
+# Import external libs
 import copy
 import os
 import pandas as pd
@@ -23,6 +22,7 @@ from pandas.plotting import scatter_matrix
 import plotly.graph_objects as go
 import numpy as np
 import matplotlib.pyplot as plt
+import matplotlib.pylab as plb
 import webbrowser
 import ipyfilechooser as ipf
 import time
@@ -36,9 +36,10 @@ from win32gui import GetWindowRect, GetForegroundWindow
 # ------------Constants------------------------
 from text_list import TEXT_LIST as TL
 
-FORBIDDEN_CHARACTERS = [' ', '|', '*', '/', '-', '+', ',', "#", "!", "$", "£", "%", "^", "#", "&", "?", ";", "ù", "é",
-                        "@", "¤", "µ", "è", "°", "\\"]
-FORBIDDEN_PARAMS = ['I', 'gamma', 'beta', 're', 'ln', 'sqrt', 'arg']
+FORBIDDEN_CHARACTERS = [' ', '|', '*', '/', '-', '+', ',', "#", "!", "$", "£", "%", "^", "&", "?", ";", "ù", "é",
+                        "@", "¤", "µ", "è", "°", "\\", '"', "'"]
+FORBIDDEN_CHARACTERS_DESC = ['|', '"', "'", "#"]
+FORBIDDEN_PARAMS = ['I', 'gamma', 'beta', 're', 'ln', 'log', 'sqrt', 'arg']
 DOE_MULTIPLIER = 10
 
 # ------------Global variables-----------------
@@ -66,8 +67,16 @@ MODELS = {}
 REGRESSIONS = []
 PI0_PI_LIST = []
 
+"""
+This is the code for GUI widgets and their associated functions. The first part contains all functions,
+the second part (~line 2600) contains the widgets. These two parts are subdivided by tab name.
+"""
 
-# -----------Functions--------------------------
+# -----------Functions--------------------------------------------------------------------------------------------------
+
+# Fist Physical Parameters Tab, some Buckingham tab and all Toolbar functions as well as some general helper functions
+
+
 def check_name(name):
     """
     Parameters
@@ -106,9 +115,10 @@ def check_desc(desc):
     -------
 
     """
-    if '|' in desc:
-        desc_entry.error_messages = TL[3]
-        return False
+    for for_char in FORBIDDEN_CHARACTERS_DESC:
+        if for_char in desc:
+            desc_entry.error_messages = f"{TL[3]} : {for_char}"
+            return False
     return True
 
 
@@ -126,8 +136,20 @@ def check_unit(unit):
         unit_entry.error_messages = TL[4]
         return False
     base_registry = UnitRegistry()
-    if unit not in base_registry:
-        unit_entry.error_messages = TL[5]
+    try:
+        if unit not in base_registry:
+            contains_upper = False
+            for u in unit:
+                if u.isupper():
+                    contains_upper = True
+                    break
+            if contains_upper:
+                unit_entry.error_messages = "Unit not recognized, try in lowercase"
+            else:
+                unit_entry.error_messages = TL[5]
+            return False
+    except Exception:
+        unit_entry.error_messages = "Invalid characters"
         return False
     return True
 
@@ -349,12 +371,13 @@ def force_buckingham(widget, event, data):
             force_area.error_messages = TL[15] + str(e)
     else:
         force_area.success_messages = ""
+        global CHOSEN_PI_SET, CHOSEN_PI_LIST
+        if check2.v_model:
+            CHOSEN_PI_SET = None
+            CHOSEN_PI_LIST = []
+            update_current_set()
         check2.disabled = True
         check2.v_model = False
-        global CHOSEN_PI_SET, CHOSEN_PI_LIST
-        CHOSEN_PI_SET = None
-        CHOSEN_PI_LIST = []
-        update_current_set()
         force_area.readonly = False
         force_area.clearable = True
         force_area.background_color = "white"
@@ -412,17 +435,19 @@ def automatic_buckingham(widget, event, data):
 
 def force_copy(widget, event, data):
     """
-    Returns Copies the selected pi set from auto_buck_table to force_area
+    Returns Copies the selected pi set from auto_buck_table or buck area to force_area
     -------
 
     """
     l = len(auto_buck_table.items)
-    if auto_buck_table.v_model:
+    if auto_buck_table.v_model and auto_buck_table.v_model[0]['pi set number']:
         pi_set_nb = auto_buck_table.v_model[0]['pi set number']
         for i in range(0, l):
             if auto_buck_table.items[i]['pi set number'] == pi_set_nb:
                 force_area.v_model = pif.format_auto_pi_set(auto_buck_table.v_model[0]['expressions'])
                 break
+    elif check1.v_model:
+        force_area.v_model = buck_area.v_model
 
 
 def check1_change(widget, event, data):
@@ -528,24 +553,53 @@ def select_auto_pi_set(widget, event, data):
             update_current_set()
 
 
-def pi_set_html(pi_set):
+def pi_set_html(pi_set, math=True):
     """
     Parameters
     ----------
     pi_set: Pi set in a string form (with " | " separators between pi numbers)
+    math: display expression as Latex math (default True)
 
     Returns A list of v.HTML widgets that are to be used as children of a v.CardText
     -------
 
     """
-    pi_set = pi_set.replace("**", "°°")
-    pi_set = pi_set.replace("*", " * ")
-    pi_set = pi_set.replace("°°", "**")
-    spt_pi_set = pi_set.split("| ")
-    card_text_children = []
-    for pi in spt_pi_set:
-        card_text_children.append(v.Html(tag='div', children=[pi]))
-    return card_text_children
+    if not math:
+        pi_set = pi_set.replace("**", "°°")
+        pi_set = pi_set.replace("*", " * ")
+        pi_set = pi_set.replace("°°", "**")
+        spt_pi_set = pi_set.split("| ")
+        card_text_children = []
+        for pi in spt_pi_set:
+            card_text_children.append(v.Html(tag='div', children=[pi]))
+        return card_text_children
+    else:
+        pi_set = pi_set.replace("**", "^{")
+        spt_pi_set = pi_set.split("| ")
+        for i in range(len(spt_pi_set)):
+            pi_expr = spt_pi_set[i]
+            pi_expr = pi_expr.replace(f"pi", f"\pi_", 1)
+            pi = list(pi_expr)
+            open_bracket = False
+            for j in range(len(pi)):
+                if pi[j] == "{":
+                    open_bracket = True
+                if pi[j] == "*" and open_bracket:
+                    pi[j] = "}"
+                    open_bracket = False
+            pi_expr = "".join(pi)
+            pi_expr = pi_expr.replace("}", "}\\ \cdot \\ ")
+            pi_expr = pi_expr.replace("*", "\\ \cdot \\ ")
+            if open_bracket:
+                pi_expr += "}"
+            pi_expr = pi_expr.replace("=", "\\ = \\")
+            spt_pi_set[i] = pi_expr
+        card_text_children = []
+        str_latex = r"$"
+        for pi in spt_pi_set:
+            str_latex += pi + r"\\"
+        card_text_children.append(widgets.HTMLMath(str_latex + "$"))
+        return card_text_children
 
 
 def update_current_set():
@@ -682,6 +736,16 @@ def pint_link(widget, event, data):
 
 
 def new_log(log, success: bool):
+    """
+    Parameters
+    ----------
+    log The string to be shown if the logs field
+    success If true, the log will be displayed in green (in red if False)
+
+    Returns Replaces previous log with current log in the logs field
+    -------
+
+    """
     if success:
         logs_card.class_ = logs_card.class_ + "; green--text"
         logs_card.children = [v.Html(tag='div', children=[log], class_="text-left py-2 px-2")]
@@ -691,12 +755,22 @@ def new_log(log, success: bool):
 
 
 def choose_dir(widget, event, data):
+    """
+    Returns Opens the dialog_dir dialog box and initializes it
+    -------
+
+    """
     global WORKDIR
     dialog_dir.children[0].children[1].children = ["Current work directory: " + WORKDIR]
     dialog_dir.v_model = True
 
 
 def hide_dir(chooser):
+    """
+    Returns  Effectively changes the current work directory (WORKDIR) and closes the dialog_dir dialog box
+    -------
+
+    """
     global WORKDIR
     old_workdir = WORKDIR
     spl.add_temp(old_workdir)
@@ -710,6 +784,15 @@ def hide_dir(chooser):
 
 
 def save(widget, event, data):
+    """
+    Parameters
+    ----------
+    widget The save button int the toolbar
+
+    Returns Creates a new pyVPLM save in the work directory with a default name containing date and time
+    -------
+
+    """
     widget.disabled = True
     global WORKDIR
     now = datetime.now()
@@ -725,7 +808,7 @@ def save(widget, event, data):
     tab2_state = [check1.v_model, check2.v_model, check3.v_model, force_state, pi_set_nb]
     result = [[header["text"] for header in result_data.headers], result_data.items]
     doe_params = [select_DOE.v_model, select_log.v_model, anticipated_mo_entry.v_model]
-    reg_state = [select_pi0.v_model, select_reg_criteria.v_model, model_order_entry.v_model,
+    reg_state = [select_pi0.v_model, select_reg_criteria.v_model, model_order_entry.v_model, select_reg_type.v_model,
                  nb_terms_slider.v_model]
     sl.save(file_path, sheet.items, buck_area.v_model, force_area.v_model, auto_buck_table.items, tab2_state,
             PHYSICAL_PARAMS, PI_SETS, CHOSEN_PI_SET, PI_LISTS, CHOSEN_PI_LIST, phy_const_area.v_model,
@@ -774,7 +857,7 @@ def hide_save_as(widget, event, data):
         result = [[header["text"] for header in result_data.headers], result_data.items]
         doe_params = [select_DOE.v_model, select_log.v_model, anticipated_mo_entry.v_model]
         reg_state = [select_pi0.v_model, select_reg_criteria.v_model, model_order_entry.v_model,
-                     nb_terms_slider.v_model]
+                     select_reg_type.v_model, nb_terms_slider.v_model]
 
         sl.save(file_path, sheet.items, buck_area.v_model, force_area.v_model, auto_buck_table.items, tab2_state,
                 PHYSICAL_PARAMS, PI_SETS, CHOSEN_PI_SET, PI_LISTS, CHOSEN_PI_LIST, phy_const_area.v_model,
@@ -792,6 +875,15 @@ def hide_save_as(widget, event, data):
 
 
 def save_plots(widget, event, data):
+    """
+    Parameters
+    ----------
+    widget The save all plots button from the toolbar
+
+    Returns Saves all the plots that were in the temp directory in the work directory with default names with date and time
+    -------
+
+    """
     try:
         spl.save_all_plots(WORKDIR)
         new_log(f"All plots saved at: {WORKDIR}", True)
@@ -946,10 +1038,11 @@ def hide_ld(chooser):
             select_pi0.v_model = reg_state[0]
             select_reg_criteria.v_model = reg_state[1]
             model_order_entry.v_model = int(reg_state[2])
+            select_reg_type.v_model = reg_state[3]
 
         MODELS = load_tuple[19]
         if MODELS:
-            regression_models(models_btn, 0, 0, slider_state=int(reg_state[3]))
+            regression_models(models_btn, 0, 0, slider_state=int(reg_state[4]))
 
         if tabs.v_model == 5:
             change_tab_5()
@@ -982,6 +1075,11 @@ def add_pi(widget, event, data):
 
 
 def tab2_reload():
+    """
+    Returns Reloads Buckingham Theorem Tab
+    -------
+
+    """
     global CHOSEN_PI_SET, CHOSEN_PI_LIST, PI_SETS, PI_LISTS
     CHOSEN_PI_SET = None
     PI_SETS = [None, None, []]
@@ -1010,6 +1108,11 @@ def tab2_reload():
 
 
 def tab2_disable():
+    """
+    Returns Disables Buckingham Theorem Tab
+    -------
+
+    """
     force_buck_btn.disabled = True
     auto_buck_btn.disabled = True
     check1.disabled = True
@@ -1017,6 +1120,11 @@ def tab2_disable():
 
 
 def tab2_enable():
+    """
+    Returns Enables Buckingham Theorem Tab
+    -------
+
+    """
     force_buck_btn.disabled = False
     auto_buck_btn.disabled = False
     check1.disabled = False
@@ -1026,6 +1134,11 @@ def tab2_enable():
 
 
 def add_phy_const(widget, event, data):
+    """
+    Returns Adds a physical constraint from the text field to the text area
+    -------
+
+    """
     phy_const_entry.error_messages = ""
     if phy_const_entry.v_model is None or phy_const_entry.v_model == "":
         phy_const_entry.error_messages = TL[21]
@@ -1039,6 +1152,11 @@ def add_phy_const(widget, event, data):
 
 
 def add_pi_const(widget, event, data):
+    """
+    Returns Adds a pi constraint from the text field to the text area
+    -------
+
+    """
     pi_const_entry.error_messages = ""
     if pi_const_entry.v_model is None or pi_const_entry.v_model == "":
         pi_const_entry.error_messages = TL[21]
@@ -1052,28 +1170,58 @@ def add_pi_const(widget, event, data):
 
 
 def nb_of_terms():
+    """
+    Returns The maximum number of terms for the given model order and the amount of input pi numbers
+    -------
+
+    """
     n = int(anticipated_mo_entry.v_model)
-    p = len(CHOSEN_PI_LIST) - 1
+    p = len(CHOSEN_PI_LIST) - OUTPUTS
     return noc.coefficient_nb(n, p, approx=(p >= 2*n and n > 10))
 
 
 def mo_to_size(widget, event, data):
+    """
+    Parameters
+    ----------
+    widget Anticipated model order field
+
+    Returns Sets the default wished size to 10x max number of terms
+    -------
+
+    """
     nb_terms = nb_of_terms()
     wished_size_entry.v_model = DOE_MULTIPLIER * nb_terms
     model_order_entry.v_model = widget.v_model
+    widget.messages = ""
+    wished_size_entry.messages = ""
 
 
 def check_size(widget, event, data):
+    """
+    Returns Checks if the wished size is not too low or too high compared to the default wished size and shows warnings
+    -------
+
+    """
     expected = DOE_MULTIPLIER * nb_of_terms()
-    if int(widget.v_model) > int(2*expected) or int(widget.v_model) < int(0.5*expected):
-        widget.messages = "Warning: size not advised for model order"
+    if int(wished_size_entry.v_model) > int(2*expected) or\
+            int(0.5 * expected) > int(wished_size_entry.v_model) >= int(expected/DOE_MULTIPLIER):
+        wished_size_entry.messages = "Warning: size not advised for model order"
         anticipated_mo_entry.messages = "Warning: size not advised for model order"
+    elif int(wished_size_entry.v_model) < int(expected/DOE_MULTIPLIER):
+        wished_size_entry.messages = "Warning: size too low for model order, model computation will fail"
+        anticipated_mo_entry.messages = "Warning: size too low for model order, model computation will fail"
     else:
-        widget.messages = ""
+        wished_size_entry.messages = ""
         anticipated_mo_entry.messages = ""
 
 
 def gen_doe(widget, event, data):
+    """
+    Returns Displays the generate DOE dialog box and initializes it
+    -------
+
+    """
     global WORKDIR
     dialog3.v_model = True
     dialog3.children[0].children[1].children = ["Current work directory: " + WORKDIR]
@@ -1083,7 +1231,17 @@ def gen_doe(widget, event, data):
 
 
 def customize_2d_plot(widget, event, data):
+    """
+    Parameters
+    ----------
+    widget The current range slider or one of the two selection fields (for the axis)
+
+    Returns
+    -------
+
+    """
     global AX, TOTAL_DOE
+    widget.loading = True
     new_df = TOTAL_DOE
     i = 0
     for col in new_df:
@@ -1097,9 +1255,27 @@ def customize_2d_plot(widget, event, data):
         AX.set_ylabel(select_2d_y.v_model)
         AX.plot(new_df[select_2d_x.v_model], new_df[select_2d_y.v_model], 'o')
         display(AX.figure)
+    widget.loading = False
 
 
 def init_doe_plots(doeX, parameter_set, doePi, doePi_all, doePi_nearest, doePi_all_obj, doePI_active, pi_set, log=True):
+    """
+    Parameters
+    ----------
+    doeX numpy array with the DOE of physical parameters
+    parameter_set PositiveParameterSet with all input physical parameters
+    doePi numpy array with the DOE of pi numbers (elected points)
+    doePi_all numpy array with the DOE of pi numbers (all points)
+    doePi_nearest numpy array with the DOE of pi numbers (3 nearest from objective points)
+    doePi_all_obj numpy array with the DOE of pi numbers (all objective points)
+    doePI_active numpy array with the DOE of pi numbers (active objective points)
+    pi_set PositiveParameterSet with all input pi numbers
+    log Toggles display in log space for all plots
+
+    Returns Initializes all DOE plots
+    -------
+
+    """
     spl.add_temp(WORKDIR)
     _, _, ww, _ = GetWindowRect(GetForegroundWindow())
     error = False
@@ -1133,7 +1309,14 @@ def init_doe_plots(doeX, parameter_set, doePi, doePi_all, doePi_nearest, doePi_a
                 for j in range(np.shape(sm1)[1]):
                     if i < j:
                         sm1[i, j].set_visible(False)
-            plt.savefig(WORKDIR + "\\temp\\phy_scatter_matrix.pdf")
+                    elif i == j:
+                        x_ = sm1[i, j].lines[0].get_xdata()
+                        y_ = sm1[i, j].lines[0].get_ydata()
+                        sm1[i, j].fill_between(x_, y_, alpha=0.54)  # Petite ref
+            try:
+                plt.savefig(WORKDIR + "\\temp\\phy_scatter_matrix.pdf")
+            except Exception:
+                new_log("Failed to save phy_scatter_matrix.pdf in \\temp", False)
             plt.show()
         except ValueError:
             error = True
@@ -1175,9 +1358,12 @@ def init_doe_plots(doeX, parameter_set, doePi, doePi_all, doePi_nearest, doePi_a
         except ValueError:
             error = True
         palette = {lab0: "blue", lab1: "green", lab2: "cyan", lab3: "red", lab4: "black"}
-        sns.pairplot(df_2_f, hue="DOE points", hue_order=[lab3, lab0, lab2, lab1, lab4], palette=palette, corner=True,
-                     height=7*ww/1928, markers=["D", ".", ".", "s", "."], diag_kind="kde")
+        ax = sns.pairplot(df_2_f, hue="DOE points", hue_order=[lab3, lab0, lab2, lab1, lab4], palette=palette,
+                          corner=True, height=7*ww/1928, markers=["D", ".", ".", "s", "."], diag_kind="kde",
+                          diag_kws={'bw_method': 0.3})
         plt.savefig(WORKDIR + "\\temp\\pi_scatter_matrix.pdf")
+        plb.setp(ax.legend.get_texts(), fontsize='22')  # for legend text
+        plb.setp(ax.legend.get_title(), fontsize='32')  # for legend title
         plt.show()
 
     if error:
@@ -1231,7 +1417,10 @@ def init_doe_plots(doeX, parameter_set, doePi, doePi_all, doePi_nearest, doePi_a
     else:
         for col_name in df_3.columns:
             parcoords_labels[col_name] = col_name.split("[")[0]
-    fig.add_parcoords(dimensions=[{'label': parcoords_labels[n], 'values': df_3[n]} for n in df_3.columns])
+    fig.add_parcoords(dimensions=[{'label': parcoords_labels[n], 'values': df_3[n]} for n in df_3.columns],
+                      line=dict(color=df_3[df_3.columns[len(df_3.columns) - 1]],
+                      colorscale='Bluered_r', showscale=False)
+                      )
     parallel_plot_box.children = [fig]
     fig.write_image(WORKDIR + "\\temp\\parallel_plot.pdf")
 
@@ -1242,6 +1431,15 @@ def init_doe_plots(doeX, parameter_set, doePi, doePi_all, doePi_nearest, doePi_a
 # noinspection PyTypeChecker,
 # PyUnresolvedReferences
 def hide_doe(widget, event, data):
+    """
+    Parameters
+    ----------
+    widget Ok button in the DOE dialog box
+
+    Returns Hides the dialog box and generates the DOE, calls init_DOE_plots to initialize the plots
+    -------
+
+    """
     widget.disabled = True
     widget.loading = True
     gen_DOE_btn.disabled = True
@@ -1277,7 +1475,8 @@ def hide_doe(widget, event, data):
                 dialog3.v_model = False
                 return -1
             try:
-                pi_constraints = vpl.declare_constraints(reduced_pi_set, csf.str_to_constraint_set(pi_const_area.v_model))
+                pi_constraints = vpl.declare_constraints(reduced_pi_set,
+                                                         csf.str_to_constraint_set(pi_const_area.v_model))
             except (ValueError, SyntaxError):
                 pi_const_area.error_messages = "Invalid constraints"
                 widget.disabled = False
@@ -1286,12 +1485,18 @@ def hide_doe(widget, event, data):
                 gen_DOE_btn.disabled = False
                 gen_DOE_btn.loading = False
                 return -1
+            relative_points_vector = []
+            for i in range(len(relative_nb_points_sliders.children)):
+                if i % 2 == 1:
+                    slider = relative_nb_points_sliders.children[i]
+                    relative_points_vector.append(slider.v_model)
             out_tuple = doe.create_const_doe(reduced_parameter_set, reduced_pi_set, func_x_to_pi,
                                              parameters_constraints=parameter_constraints,
                                              pi_constraints=pi_constraints,
                                              whished_size=int(wished_size_entry.v_model),
                                              test_mode=True,
-                                             log_space=(select_log.v_model == "Log"))
+                                             log_space=(select_log.v_model == "Log"),
+                                             relative_points=relative_points_vector)
             doeX, doePi, doePi_all, doePi_nearest, doePi_all_obj, doePI_active = out_tuple
             global DOE
             DOE = [doeX, doePi, doePi_all, doePi_nearest, doePi_all_obj, doePI_active]
@@ -1325,6 +1530,15 @@ def hide_doe(widget, event, data):
 
 
 def save_phy(widget, event, data):
+    """
+    Parameters
+    ----------
+    widget Save phy button
+
+    Returns Saves the physical parameters scatter matrix in the current work directory
+    -------
+
+    """
     try:
         new_name = spl.save_single_plot(WORKDIR, "phy_scatter_matrix.pdf")
     except FileNotFoundError:
@@ -1340,6 +1554,15 @@ def save_phy(widget, event, data):
 
 
 def save_pi(widget, event, data):
+    """
+    Parameters
+    ----------
+    widget Save phy button
+
+    Returns Saves the pi scatter matrix in the current work directory
+    -------
+
+    """
     try:
         new_name = spl.save_single_plot(WORKDIR, "pi_scatter_matrix.pdf")
     except FileNotFoundError:
@@ -1355,6 +1578,15 @@ def save_pi(widget, event, data):
 
 
 def save_cus(widget, event, data):
+    """
+    Parameters
+    ----------
+    widget Save phy button
+
+    Returns Saves the customizable 2D plot in the current work directory
+    -------
+
+    """
     try:
         new_name = spl.save_single_plot(WORKDIR, "customizable_2D_plot.pdf")
     except FileNotFoundError:
@@ -1370,6 +1602,15 @@ def save_cus(widget, event, data):
 
 
 def save_para(widget, event, data):
+    """
+    Parameters
+    ----------
+    widget Save phy button
+
+    Returns Saves the parallel coordinates plot in the current work directory
+    -------
+
+    """
     try:
         new_name = spl.save_single_plot(WORKDIR, "parallel_plot.pdf")
     except FileNotFoundError:
@@ -1385,9 +1626,15 @@ def save_para(widget, event, data):
 
 
 def tab3_reload():
+    """
+    Returns Reloads the DOE tab
+    -------
+
+    """
     doe_alert_cont.children = []
     input_pi.children[1].children = [""]
     output_pi.children[1].children = [""]
+    relative_nb_points_sliders.children = []
     phy_const_entry.v_model = ""
     phy_const_area.v_model = ""
     pi_const_entry.v_model = ""
@@ -1398,6 +1645,11 @@ def tab3_reload():
 
 
 def tab3_disable():
+    """
+    Returns Disables the DOE tab
+    -------
+
+    """
     phy_const_entry.disabled = True
     phy_const_btn.disabled = True
     phy_const_area.disabled = True
@@ -1411,6 +1663,11 @@ def tab3_disable():
 
 
 def tab3_enable():
+    """
+    Returns Enables the DOE tab
+    -------
+
+    """
     phy_const_entry.disabled = False
     phy_const_btn.disabled = False
     phy_const_area.disabled = False
@@ -1426,6 +1683,11 @@ def tab3_enable():
 
 
 def gen_empty_csv(widget, event, data):
+    """
+    Returns Displays and initializes the generate empty csv dialog box
+    -------
+
+    """
     global WORKDIR
     dialog5.v_model = True
     dialog5.children[0].children[1].children = ["Current work directory: " + WORKDIR]
@@ -1435,6 +1697,15 @@ def gen_empty_csv(widget, event, data):
 
 
 def hide_empty_csv(widget, event, data):
+    """
+    Parameters
+    ----------
+    widget The OK button in the generated empty csv dialog box
+
+    Returns Generates a .csv file with only valid headers in the current work directory
+    -------
+
+    """
     widget.disabled = True
     widget.loading = True
     empty_csv_btn.disabled = True
@@ -1472,11 +1743,21 @@ def hide_empty_csv(widget, event, data):
 
 
 def result_import(widget, event, data):
+    """
+    Returns Displays and initializes the result import dialog box
+    -------
+
+    """
     dialog4.v_model = True
     fc_res.default_path = WORKDIR
 
 
 def hide_res_import():
+    """
+    Returns Imports the chosen .csv file to memory and displays it in the result import table
+    -------
+
+    """
     result_btn.disabled = True
     result_btn.loading = True
     global PHYSICAL_PARAMS, RESULT_DF, RESULT_PI, CHOSEN_PI_SET, DEPENDENCY_CHECK_STATE
@@ -1507,6 +1788,11 @@ def hide_res_import():
 
 
 def input_output_lists():
+    """
+    Returns The names of the the input pi and output pi numbers based on CHOSEN_PI_LIST and OUTPUTS (number of outputs)
+    -------
+
+    """
     global OUTPUTS, CHOSEN_PI_LIST, PHYSICAL_PARAMS, DOE_PI_LIST
     if CHOSEN_PI_LIST:
         if OUTPUTS == 0:
@@ -1532,6 +1818,16 @@ def input_output_lists():
 
 
 def dependency_check(widget, event, data):
+    """
+    Parameters
+    ----------
+    widget Any checkbox in the dependency analysis tab
+    data True if the checkbox is checked, False otherwise
+
+    Returns Modifies the current pi set vie REGRESSION_PI_LIST and DEPENDENCY_CHECK_STATE
+    -------
+
+    """
     global REGRESSION_PI_LIST, DEPENDENCY_CHECK_STATE
     index = int(widget.label[-1]) - 1
     if data:
@@ -1547,6 +1843,11 @@ def dependency_check(widget, event, data):
 
 
 def update_dependency_check():
+    """
+    Returns Updates current chosen pi set based on DEPENDENCY_CHECK_STATE
+    -------
+
+    """
     global REGRESSION_PI_LIST, DEPENDENCY_CHECK_STATE
     for index in range(len(DEPENDENCY_CHECK_STATE)):
         if DEPENDENCY_CHECK_STATE[index]:
@@ -1560,6 +1861,12 @@ def update_dependency_check():
 
 
 def toggle_dependency_check():
+    """
+    Returns Disables the last checked checkbox for the last input pi and the last output pi (ensures that
+    there is at least one input and one output before regression)
+    -------
+
+    """
     piN, pi0 = input_output_lists()
     inp_index = []
     for pi_n in piN:
@@ -1592,6 +1899,16 @@ def toggle_dependency_check():
 
 
 def update_dependency_plots(widget, event, data):
+    """
+    Parameters
+    ----------
+    widget Any of the checkboxes in th dependency analysis tab
+
+    Returns Updates both sensitivity and dependency analysis plots depending on which checkboxes are unchecked (removes
+    plots associated with removed pi numbers)
+    -------
+
+    """
     widget.disabled = True
     widget.loading = True
     sen_save_btn.disabled = True
@@ -1618,6 +1935,15 @@ def update_dependency_plots(widget, event, data):
 
 
 def change_threshold(widget, event, data):
+    """
+    Parameters
+    ----------
+    widget The R^2 threshold slider
+
+    Returns Updates dependency analysis plots accordingly (new R^2 threshold)
+    -------
+
+    """
     widget.loading = True
     dep_save_btn.disabled = True
     piN, _ = input_output_lists()
@@ -1627,14 +1953,28 @@ def change_threshold(widget, event, data):
             if pi_n in piN:
                 piN.remove(pi_n)
     dependency_output.clear_output(wait=True)
+    threshold = widget.v_model
+    if threshold == 0:
+        threshold = 0.001
+    if threshold == 1:
+        threshold = 0.999
     with dependency_output:
         dpp.pi_dependency_plot(CHOSEN_PI_SET, RESULT_PI, WORKDIR, x_list=piN, y_list=piN, latex=True,
-                               threshold=widget.v_model)
+                               threshold=threshold)
     widget.loading = False
     dep_save_btn.disabled = False
 
 
 def save_sen(widget, event, data):
+    """
+    Parameters
+    ----------
+    widget Save sen button
+
+    Returns Saves the sensitivity analysis plot in the current work directory
+    -------
+
+    """
     try:
         new_name = spl.save_single_plot(WORKDIR, "sensitivity_plot.pdf")
     except FileNotFoundError:
@@ -1650,6 +1990,15 @@ def save_sen(widget, event, data):
 
 
 def save_dep(widget, event, data):
+    """
+    Parameters
+    ----------
+    widget Save sen button
+
+    Returns Saves the dependency analysis plot in the current work directory
+    -------
+
+    """
     try:
         new_name = spl.save_single_plot(WORKDIR, "dependency_plot.pdf")
     except FileNotFoundError:
@@ -1667,22 +2016,43 @@ def save_dep(widget, event, data):
 
 
 def tab6_enable():
+    """
+    Returns Enables the regression tab
+    -------
+
+    """
     select_pi0.disabled = False
     model_order_entry.disabled = False
     select_reg_criteria.disabled = False
+    select_reg_type.disabled = False
     models_btn.disabled = False
     nb_terms_slider.disabled = False
 
 
 def tab6_disable():
+    """
+    Returns Disables the regression tab
+    -------
+
+    """
     select_pi0.disabled = True
     model_order_entry.disabled = True
     select_reg_criteria.disabled = True
+    select_reg_type.disabled = True
     models_btn.disabled = True
     nb_terms_slider.disabled = True
 
 
 def slider_tick_labels(max_nb):
+    """
+    Parameters
+    ----------
+    max_nb Max number of terms for the current model order
+
+    Returns Removes some ticks from the model terms slider if there are too many ticks (prevents overlapping)
+    -------
+
+    """
     tick_labels = list(range(1, max_nb + 1))
     if max_nb > 50:
         visible_labels = [1]
@@ -1695,6 +2065,16 @@ def slider_tick_labels(max_nb):
 
 
 def regression_models(widget, event, data, slider_state=1):
+    """
+    Parameters
+    ----------
+    widget The show models button
+    slider_state State of the model terms slider
+
+    Returns Generates all regression models, stores them in memory and displays all the regression tab plots
+    -------
+
+    """
     spl.add_temp(WORKDIR)
     widget.disabled = True
     widget.loading = True
@@ -1743,16 +2123,21 @@ def regression_models(widget, event, data, slider_state=1):
         choice = 3
     else:
         choice = 4
+    log_space = select_reg_type.v_model == "Power Law"
     if not RESULT_DF.empty:
         models_output.clear_output(wait=True)
         _, _, ww, _ = GetWindowRect(GetForegroundWindow())
         with models_output:
             warnings.filterwarnings("ignore")
+            plt.rc("text", usetex=True)
+            plt.rc("font", family="serif")
             MODELS, axs, fig = vpl.regression_models(modified_result_pi, elected_pi0=select_pi0.v_model,
                                                      order=model_order, test_mode=True, plots=True,
                                                      force_choice=choice, ymax_axis=1000, removed_pi=list_to_del,
                                                      eff_pi0=eff_pi0, skip_cross_validation=True, return_axes=True,
-                                                     fig_size=(29*ww/1928, 12*ww/1928))
+                                                     fig_size=((29/(1 - delta) * (ww/1928 - delta)),
+                                                               12*ww/1928),
+                                                     log_space=log_space)
             max_nb_terms = len(MODELS.keys()) - 4
             fig_width, _ = fig.get_size_inches()*fig.dpi
             omicron = 0.001 * max_nb_terms
@@ -1807,8 +2192,6 @@ def regression_models(widget, event, data, slider_state=1):
             regression_cont.children = regression_cont.children + [models_output_col, nb_terms_slider_row,
                                                                    save_reg_cont, regression_output]
         nb_terms_slider.v_model = slider_state
-        slider_margin_right = 118*ww/1928
-        nb_terms_slider.style_ = f"margin : 0px {slider_margin_right}px 0px 56px"
         perform_regression(nb_terms_slider, "change", 0, from_reg_models=True)
         nb_terms_slider.disabled = False
     models_save_btn.disabled = False
@@ -1817,6 +2200,17 @@ def regression_models(widget, event, data, slider_state=1):
 
 
 def perform_regression(widget, event, data, from_reg_models=False):
+    """
+    Parameters
+    ----------
+    widget model terms slider
+    from_reg_models True if the function is called from regression_models()
+
+    Returns Calculates the actual regression for each model (if from_reg_models=True), and updates all plots in the
+    regression tab according to model terms slider state
+    -------
+
+    """
     widget.disabled = True
     widget.loading = True
     models_save_btn.disabled = True
@@ -1872,8 +2266,8 @@ def perform_regression(widget, event, data, from_reg_models=False):
                                     PI0_PI_LIST[1], WORKDIR)
         plt.show()
     if len(regression_cont.children) == 7:
-        regression_cont.children = regression_cont.children + [expression_card]
-    math_widget = widgets.HTMLMath(dic["expr_latex"])
+        regression_cont.children = regression_cont.children[:-2] + [expression_col] + regression_cont.children[-2:]
+    math_widget = widgets.HTMLMath(dic["expr_latex"].replace("pi", "\pi_"))
     expression_cont.children = [math_widget]
     models_save_btn.disabled = False
     reg_save_btn.disabled = False
@@ -1882,6 +2276,15 @@ def perform_regression(widget, event, data, from_reg_models=False):
 
 
 def save_models(widget, event, data):
+    """
+    Parameters
+    ----------
+    widget Save models button
+
+    Returns Saves the first plot of the regression tab to the current work directory
+    -------
+
+    """
     try:
         new_name = spl.save_single_plot(WORKDIR, "regression_models_plot.pdf")
     except FileNotFoundError:
@@ -1897,6 +2300,15 @@ def save_models(widget, event, data):
 
 
 def save_reg(widget, event, data):
+    """
+    Parameters
+    ----------
+    widget Save models button
+
+    Returns Saves the second plot of the regression tab to the current work directory
+    -------
+
+    """
     try:
         new_name = spl.save_single_plot(WORKDIR, "perform_regression_plot.pdf")
     except FileNotFoundError:
@@ -1910,10 +2322,43 @@ def save_reg(widget, event, data):
         time.sleep(1)
         widget.color = "default"
 
+
+def save_py_func(widget, event, data):
+    """
+    Parameters
+    ----------
+    widget the save .py function button
+
+    Returns Saves the current model as a python function in a .py file created in the current work directory
+    -------
+
+    """
+    widget.disabled = True
+    widget.loading = True
+    chosen_model = nb_terms_slider.v_model
+    global REGRESSIONS, CHOSEN_PI_SET, PHYSICAL_PARAMS
+    print(CHOSEN_PI_SET)
+    print(PHYSICAL_PARAMS)
+    model = REGRESSIONS[chosen_model]["expr"]
+    input_pi_names, _ = input_output_lists()
+    f_name = spf.save_py_func(model, input_pi_names, WORKDIR, CHOSEN_PI_SET, PHYSICAL_PARAMS)
+    new_log(f"Saved python file as: {f_name}", True)
+    widget.disabled = False
+    widget.loading = False
+    python_func_btn.children[0].color = "green"
+    time.sleep(1)
+    python_func_btn.children[0].color = "default"
+
+
 # -----All Tabs functions-----------------------------------------------------------------------------------------------
 
 
 def change_tab_2():
+    """
+    Function called when the user switches to the Buckingham theorem tab
+    -------
+
+    """
     global OLD_PHYSICAL_PARAMS, PHYSICAL_PARAMS, OUTPUTS
     valid_param_set = True
     if len(sheet.items) == 0:
@@ -1958,6 +2403,11 @@ def change_tab_2():
 
 
 def change_tab_3():
+    """
+    Function called when the user switches to the DOE tab
+    -------
+
+    """
     global OUTPUTS, CHOSEN_PI_LIST, PHYSICAL_PARAMS, DOE_PI_LIST
     if CHOSEN_PI_LIST:
         if OUTPUTS == 0:
@@ -1971,21 +2421,47 @@ def change_tab_3():
         else:
             if DOE_PI_LIST and DOE_PI_LIST != CHOSEN_PI_LIST:
                 doe_alert_cont.children = [change_pi_set_warning]
+                DOE_PI_LIST = CHOSEN_PI_LIST
+                tab3_enable()
+                output_index = pif.output_pi_index(CHOSEN_PI_LIST, PHYSICAL_PARAMS, OUTPUTS)
+                output_list = [CHOSEN_PI_LIST[i] for i in output_index]
+                output_pi.children[1].children = pi_set_html(pif.pi_sub_list_to_str(output_list, output_index))
+                input_index = [i for i in range(0, len(CHOSEN_PI_LIST))]
+                input_list = CHOSEN_PI_LIST.copy()
+                for i in range(len(output_list)):
+                    input_list.remove(output_list[i])
+                for ind in output_index:
+                    input_index.remove(ind)
+                input_pi.children[1].children = pi_set_html(pif.pi_sub_list_to_str(input_list, input_index))
+                relative_nb_points_sliders.children = []
+                for inp_pi in input_index:
+                    relative_nb_points_sliders.children = relative_nb_points_sliders.children + [v.Subheader(
+                        children=[f"pi{inp_pi + 1}"], class_="justify-center"),
+                        v.Slider(thumb_label="always", min=1, max=10, v_model=1)]
+                wished_size_entry.v_model = DOE_MULTIPLIER * nb_of_terms()
+            elif not DOE_PI_LIST and CHOSEN_PI_LIST:
+                doe_alert_cont.children = []
+                DOE_PI_LIST = CHOSEN_PI_LIST
+                tab3_enable()
+                output_index = pif.output_pi_index(CHOSEN_PI_LIST, PHYSICAL_PARAMS, OUTPUTS)
+                output_list = [CHOSEN_PI_LIST[i] for i in output_index]
+                output_pi.children[1].children = pi_set_html(pif.pi_sub_list_to_str(output_list, output_index))
+                input_index = [i for i in range(0, len(CHOSEN_PI_LIST))]
+                input_list = CHOSEN_PI_LIST.copy()
+                for i in range(len(output_list)):
+                    input_list.remove(output_list[i])
+                for ind in output_index:
+                    input_index.remove(ind)
+                input_pi.children[1].children = pi_set_html(pif.pi_sub_list_to_str(input_list, input_index))
+                relative_nb_points_sliders.children = []
+                for inp_pi in input_index:
+                    relative_nb_points_sliders.children = relative_nb_points_sliders.children + [v.Subheader(
+                        children=[f"pi{inp_pi + 1}"], class_="justify-center"),
+                        v.Slider(thumb_label="always", min=1, max=10, v_model=1)]
+                wished_size_entry.v_model = DOE_MULTIPLIER * nb_of_terms()
             else:
                 doe_alert_cont.children = []
-            DOE_PI_LIST = CHOSEN_PI_LIST
-            tab3_enable()
-            output_index = pif.output_pi_index(CHOSEN_PI_LIST, PHYSICAL_PARAMS, OUTPUTS)
-            output_list = [CHOSEN_PI_LIST[i] for i in output_index]
-            output_pi.children[1].children = pi_set_html(pif.pi_sub_list_to_str(output_list, output_index))
-            input_index = [i for i in range(0, len(CHOSEN_PI_LIST))]
-            input_list = CHOSEN_PI_LIST.copy()
-            for i in range(len(output_list)):
-                input_list.remove(output_list[i])
-            for ind in output_index:
-                input_index.remove(ind)
-            input_pi.children[1].children = pi_set_html(pif.pi_sub_list_to_str(input_list, input_index))
-            wished_size_entry.v_model = DOE_MULTIPLIER * nb_of_terms()
+                DOE_PI_LIST = CHOSEN_PI_LIST
     else:
         tab3_reload()
         tab3_disable()
@@ -1993,6 +2469,11 @@ def change_tab_3():
 
 
 def change_tab_4():
+    """
+    Function called when the user switches to the Result import tab
+    -------
+
+    """
     global PHYSICAL_PARAMS
     PHYSICAL_PARAMS = gen_parameter_set()
     get_outputs()
@@ -2007,6 +2488,11 @@ def change_tab_4():
 
 
 def change_tab_5():
+    """
+    Function called when the user switches to the Dependency analysis tab
+    -------
+
+    """
     global RESULT_DF, RESULT_PI, CHOSEN_PI_SET, PHYSICAL_PARAMS, OLD_RESULT, OLD_PI_SET, REGRESSION_PI_LIST, \
         DEPENDENCY_CHECK_STATE
     dependency_alert_cont.children = []
@@ -2083,6 +2569,11 @@ def change_tab_5():
 
 
 def change_tab_6():
+    """
+    Function called when the user switches to the Regression tab
+    -------
+
+    """
     tab6_enable()
     reg_alert_cont.children = []
     global DEPENDENCY_CHECK_STATE, OLD_DEPENDENCY_CHECK_STATE, REGRESSION_PI_LIST, CHOSEN_PI_LIST, CHOSEN_PI_SET
@@ -2123,7 +2614,16 @@ def change_tab_6():
 
 
 def change_tab(widget, event, data):
-    # if you change the number of tabs /!\ change line 789: if tabs.v_model == 4:
+    """
+    Parameters
+    ----------
+    data The index of the tab being switched to
+
+    Returns Executes the proper change_tab function when the user changes tab
+    -------
+
+    """
+    # if you change the number of tabs /!\ change line 1047 and 1049: if tabs.v_model == 4:
     if data == 2:
         change_tab_2()
     if data == 3:
@@ -2138,57 +2638,281 @@ def change_tab(widget, event, data):
 # -----------Tutorial Tab-----------------------------------------------------------------------------------------------
 
 
-_, _, x_w, y_w = GetWindowRect(GetForegroundWindow())
-tutorial_box = v.Card(children=[v.CardTitle(children=["What is pyVPLM ?"]),
-                                v.CardText(children=["Lorem ipsum dolor sit amet, consectetur adipiscing elit. Nam ac "
-                                                     "eros nisi. Nam vitae enim mauris. Interdum et malesuada fames ac "
-                                                     "ante ipsum primis in faucibus. Etiam dapibus bibendum felis. Nulla"
-                                                     " et euismod lorem, eget pretium ligula. Proin feugiat et eros id "
-                                                     "fringilla. Duis eu nibh ut quam ultricies ultricies ac et nulla. "
-                                                     "Mauris in consequat nibh. Sed tristique, orci nec porttitor "
-                                                     "aliquet, urna ex porttitor lorem, vel elementum lacus massa "
-                                                     "a erat. Morbi quis pharetra diam. Nulla malesuada libero in mi "
-                                                     "elementum, at viverra arcu lobortis. Donec sem ipsum, tempus sed "
-                                                     "semper ac, convallis eget lacus. Proin rhoncus eros urna, in "
-                                                     "feugiat purus eleifend vitae. Vivamus eros sem, tincidunt nec "
-                                                     "tempus at, venenatis at est. Sed posuere nisi vel dignissim "
-                                                     "vestibulum. Sed tortor enim, eleifend sit amet rutrum ultricies, "
-                                                     "placerat ac tellus."]),
-                                v.CardTitle(children=["How to use pyVPLM ?"]),
-                                v.CardText(children=["Lorem ipsum dolor sit amet, consectetur adipiscing elit. Nam ac "
-                                                     "eros nisi. Nam vitae enim mauris. Interdum et malesuada fames ac "
-                                                     "ante ipsum primis in faucibus. Etiam dapibus bibendum felis. Nulla"
-                                                     " et euismod lorem, eget pretium ligula. Proin feugiat et eros id "
-                                                     "fringilla. Duis eu nibh ut quam ultricies ultricies ac et nulla. "
-                                                     "Mauris in consequat nibh. Sed tristique, orci nec porttitor "
-                                                     "aliquet, urna ex porttitor lorem, vel elementum lacus massa "
-                                                     "a erat. Morbi quis pharetra diam. Nulla malesuada libero in mi "
-                                                     "elementum, at viverra arcu lobortis. Donec sem ipsum, tempus sed "
-                                                     "semper ac, convallis eget lacus. Proin rhoncus eros urna, in "
-                                                     "feugiat purus eleifend vitae. Vivamus eros sem, tincidunt nec "
-                                                     "tempus at, venenatis at est. Sed posuere nisi vel dignissim "
-                                                     "vestibulum. Sed tortor enim, eleifend sit amet rutrum ultricies, "
-                                                     "placerat ac tellus."]),
-                                v.CardText(children=[f"x = {x_w} ", f"y = {y_w}"])],
-                      color="blue lighten-5", height=800)
+tutorial_box = v.Card(children=[v.Row(children=[v.Img(src="Images/logo_ICA.png", max_height=200, max_width=200,
+                                                      class_="mx-5 my-2"),
+                                                v.Img(src="Images/logo_supaero.png", heigth=120, max_width="250px",
+                                                      contain=False, class_="mx-5 my-2"),
+                                                v.Img(src="Images/logo_insa.png", height=120, max_width="500px",
+                                                      contain=False, class_="mx-5 my-2")],
+                                      justify="space-around", align="center"),
+                                v.CardTitle(children=["What is pyVPLM ?"], class_='display-2'),
+                                widgets.HTML("""<head><style type="text/css">
+                                <!--
+                                 .tab { margin-right: 40px; margin-left: 20px; font-size: 15px; line-height: 1.5}
+                                -->
+                                <!--
+                                 .dash { margin-right: 50px; margin-left: 20px; font-size: 15px; line-height: 1.5}
+                                -->
+                                </style></head>
+                                <div class="tab"> <p>pyVPLM is a program that is developed to help scientist and 
+                                engineers to construct <b>power-law and/or polynomial regression models</b> on different
+                                 type of data such as finite-element simulation results, manufacturer data-sheets...<br>
+                                It integrates various functionalities such as:</p><p class="dash">- <b>Model parameters 
+                                reduction</b> based on Buckingham Theorem dimensional analysis and Pint package with 
+                                derived functions.
+                                </p><p class="dash">- <b>Sensitivity and dependency analysis</b> on dimensionless 
+                                parameters and limited experiments to simplify further model expressions. 
+                                </p><p class="dash">- Construction of <b>optimized experimental design</b> on 
+                                feasible-physical variables leading to full-factorial design within dimensionless space.
+                                 Those DOEs are the inputs of parametrized finite-element models.
+                                </p><p class="dash">- <b>Regression models construction</b> with increasing complexity 
+                                (terms sorted based on their impact) and validation based on relative error repartition 
+                                analysis.</p> </div>"""),
+                                v.CardTitle(children=["Before you start"], class_='display-2'),
+                                widgets.HTML("""<div class="tab"> <p>Before using pyVPLM, it is recommended to create a 
+                                folder to store all saved files (pyvplm saves, plots, .py models), and set that folder 
+                                as <b>work directory</b> (see "The toolbar"). The recommended resolution is <b>1920*1080
+                                </b> and it is advised to use the app on <b>full screen</b>.</p><p> If you need to 
+                                generate a model, the mandatory tabs are: Physical parameters, Buckingham theorem, 
+                                Result import and perform regression (the other tabs are marked as "optional" in this 
+                                tutorial). On the other hand, if you just need to generate a DOE, you only need the 
+                                Physical parameter, Buckingham theorem and DOE tabs. </p> </div>"""),
+                                v.CardTitle(children=["How to use pyVPLM ?"], class_='display-2'),
+                                v.CardTitle(children=["The toolbar"], class_='display-1'),
+                                v.Img(src="Images/Toolbar_with_desc.PNG", max_width=1500, class_="mb-2"),
+                                widgets.HTML("""
+                                <div class="tab"> <p>The <b>toolbar</b> is always at the top of the screen. 
+                                It contains 5 buttons and a log text field:</p><p class="dash"> - The <b>Work directory 
+                                selector</b> should be the first button you use, it will allow you to change the default
+                                  work directory to one of your choosing. All the files saved by 
+                                pyVPLM will go to the work directory and it will be the default 
+                                directory to load files from. Just click on select when you are 
+                                in the desired directory and you will have changed the work 
+                                directory.</p><p class="dash"> - The <b>Save as</b> button will allow you to save your 
+                                progress with a specific name. pyVPLM save files are .txt files and 
+                                contain all the user inputs as well as the DOE, the imported 
+                                result and the regression models calculated but NOT the plots. 
+                                You don't need to write .txt at the and of the file name.</p><p class="dash"> 
+                                - The <b>Save</b> button will allow you to make a quick save in one click. 
+                                </p><p class="dash">- The <b>Save all plots</b> button will save all the pots that have 
+                                been generated but not yet saved by other means. The saved plots will 
+                                appear in your current work directory and their name will contain 
+                                the precise time at which they have been saved.</p><p class="dash"> 
+                                - The <b>Load</b> button will allow you to load any pyVPLM save.</p><p class="dash"> 
+                                - Finally, every time you perform an action related to saving, 
+                                loading or changing work directory, a massage will appear in the 
+                                <b>logs</b> text field. It will be green if the operation is a success 
+                                and red otherwise </p> </div>"""),
+                                v.CardTitle(children=["The Physical Parameters Tab"], class_="display-1 mb-3"),
+                                v.Img(src="Images/phy_param_tab(1).png", max_width=1700),
+                                widgets.HTML("""<div class="tab"><p>The <b>Physical parameters tab</b> is where you 
+                                define your physical variables (or constants). To define a new variable fill the text 
+                                fields with the necessary information:</p><p class="dash"> - The <b>name</b> is the 
+                                unique identifier of your parameter, it has to be different from all the already 
+                                existing names. It can be multiple characters long but it cannot contain a space or  
+                                some special characters (like ?, # or $) and cannot be some special mathematical keyword 
+                                (like ln, sqrt or gamma). If you end up defining a constant, all characters in its name 
+                                will be transformed to uppercase when you add the parameter.</p><p class="dash">
+                                - The <b>description</b> is just a longer version of the name, will only influence the 
+                                comments in a generated python model. Some special characters are still forbidden 
+                                (#, |, ...) ut spaces are allowed. </p><p class="dash"> - <b>Unit</b> is the physical 
+                                unit for the value of your parameter. It has to be understood by the pint unit registry.
+                                 It is advised to use S.I units, prefixes are handled by Pint but it is also advised to 
+                                keep your units lower case when it makes sense. If you have any trouble with unit 
+                                definition, the question mark in the unit text field will link you to the pint registry 
+                                txt page. If you need to define a dimensionless parameter, just fill the unit field with
+                                 "m/m" or any other unit divided by itself.</p><p class="dash"> - <b>Bounds</b> are the 
+                                 limit values for your parameter. Both bounds must me <b>strictly positive</b>. If you 
+                                 want to define a constant, just fill the upper bound with the constant's value. 
+                                Scientific notation syntax is supported (ex: 1.1e4 for 11000).</p>
+                                 <p>Once you filled the text fields you can either press the <b>Add parameter</b> button
+                                  or simply press enter (if you are still 'in' any of the text fields). The new 
+                                parameter will appear in the table below the previous ones.To modify you 
+                                parameter set, select a parameter with the checkboxes and then use the buttons on the 
+                                left of the table:</p><p class="dash"> - The <b>up and down arrows</b> will allow you to
+                                 move up and down the selected parameter. This will change its priority to be chosen as 
+                                 a repetitive parameter in the pi set that you will generate in the next tab. This means
+                                  that it will be more likely to appear in multiple pi numbers compared to the other 
+                                parameters. This hierarchy only applies to input parameters as output parameters will 
+                                always have the lowest priority to be repetitive.</p><p class="dash"> - The <b>delete
+                                </b> button will simply delete the selected parameter.</p><p class="dash"> - The 
+                                <b>toggle input/output</b> will allow you to define a parameter as being an output 
+                                 (or revert it back to an input), it is necessary to have at least one output 
+                                 (and one input) to use the rest of the program. Constants cannot be set to output.
+                                 </p><p class="dash"> - The <b>delete all</b> button will delete all parameters in the 
+                                 table regardless of their selected status.</p><p> When all your parameters are defined
+                                 and you have at least one output, you can proceed to the next tab.</p></div>"""),
+                                v.CardTitle(children=["The Buckingham Theorem Tab"], class_='display-1'),
+                                v.Img(src="Images/buck_tab(1).png", max_width=1700, class_="mb-3"),
+                                widgets.HTML("""<div class="tab"><p>The <b>Buckingham Theorem tab</b> is where you 
+                                define your dimensionless pi set. The tab is divided in three panels: </p>
+                                <p class="dash">- The <b>simple Buckingham</b> panel will have a pi set generated as 
+                                soon as you get on the tab. This set will take into account the repetitive parameter 
+                                hierarchy defined in the previous tab. </p><p class="dash">- The <b>manual Buckingham
+                                </b> panel allows you to define your own pi set in the <b>Forced pi numbers</b> area. 
+                                The syntax is pi{N} = {expression in python form}. You can also define a new pi number
+                                with the <b>add pi</b> button in which case you only need to write the expression in 
+                                python form. If you want to copy a pi set from the other panels just, select the pi set 
+                                you want to copy with the checkboxes and press the copy button. Once the forced pi 
+                                number area is filled with your pi set just click on <b>check pi set</b> and if your pi 
+                                set is valid you will be able to select it with the panel's checkbox. The area will 
+                                become read-only but if you want to modify the set just click on <b>modify pi set</b>. 
+                                </p><p class="dash"> - The <b>automatic Buckingham</b> panel allows you to generate all 
+                                possible pi sets (with minimal integer exponents) via the automatic buckingham button. 
+                                This will generate a table with checkboxes. To select one of these pi sets, you need to 
+                                check both the checkbox in the table and the panel checkbox in the bottom left. The 
+                                syntax of the pi sets (with | separators) in the automatic buckingham table is supported
+                                 by the manual buckingham area. </p><p> You can see at all times the <b>current selected
+                                pi set</b> in mathematical form at the bottom of the tab. Once you have selected a pi 
+                                set, you can proceed to the next tabs. </p></div>"""),
+                                v.CardTitle(children=["The DOE Tab (Optional)"], class_='display-1'),
+                                v.Img(src="Images/DOE_tab_1.png", max_width=1700, class_="mb-3"),
+                                widgets.HTML("""<div class="tab"><p>The <b>DOE tab</b> (Design Of Experiment) allows you
+                                 to generate a DOE adapted to your input pi set. At the top of the tab, you will see 
+                                which pi numbers have been kept as input pi and which are considered output pi and 
+                                therefore are not part of a DOE. A pi number is considered to be an output if at least 
+                                one of its physical parameters is n output, otherwise it's an input. The tab also
+                                contains 3 panels:</p><p class="dash"> - The <b>physical parameter constraints</b> panel
+                                allows you to define constraints that will be applied to the DOE in the physical space.
+                                The syntax is: {python expression} {> or <} {another python expression} and to define 
+                                multiple constrains just put a line break between them. Example: x**2 - 1 < y + z. 
+                                Only physical parameters are accepted as variables. If your constraints are too 
+                                restrictive, an error message will be shown when you generated the DOE.
+                                </p><p class="dash"> - The <b>pi constraints</b> panel has the same purpose as the 
+                                previous one but for pi numbers. The syntax is the same but you must only work with the 
+                                input pi numbers (written as pi1, pi2 ...). Example: pi1*3 - pi2**-1 > 0
+                                </p><p class="dash"> - The <b>Relative number of points</b> panel allows you to generate
+                                more or less points along a particular axis in pi space relative to others. For 
+                                example, if one slider is set to 10 and the others to 1, the DOE generator will try to
+                                generate 10 times more points along that particular pi's axis than the other's
+                                (does not work as of 22/12/2021).</p>
+                                <p> Below these panels, you can set the type of DOE (<b>Full-Fact or Latin</b> -> only 
+                                Full-Fact available as of 22/12/2021), choose if you want your DOE to be optimized for
+                                <b>log space</b> (recommended for Power Law regression) or for <b>linear space</b> 
+                                (recommended for polynomial regression) and the <b>wished size</b> (the number of points
+                                 the DOE generator will try to create). In addition, to have an idea of a recommended 
+                                size, if you know the model order that you want, you can type it in <b>anticipated model
+                                 order</b> This will set the wised size to 10 times the maximum number of terms for the 
+                                given model order (which depends both on the number of input pi numbers and the model 
+                                order). If the wished size if too low for regression to work later, a waring will appear
+                                . That means that their will be more terms than points, in which case a regression makes
+                                 no sense. Once you set your parameters, just click on <b>generate DOE</b>, in the 
+                                dialog box that appears, you can change the name of .csv and then click <b>OK</b>. The 
+                                file will appear in your current <b>work directory</b> and 4 plots will be created:</p>
+                                </p><p class="dash"> - The <b>Scatter plot matrix (Physical parameters)</b> shows the 
+                                actual DOE points in multiple 2D plots in the physical space . The diagonal contains the
+                                1D distribution of these points for a single parameter. Keep in mind that for each 2D 
+                                plot, there may be multiple points "on top" of each other as these plots are all 
+                                projections. </p><p class="dash"> - The <b>Scatter plot matrix (Pi numbers)</b> is 
+                                roughly the same as the previous one in pi space. The main difference being that points 
+                                shown are not only the <b>elected</b> DOE points (dark blue) but also all the 
+                                <b>objective</b> points (black), all the <b>feasible</b> points (green), the <b>3 
+                                feasible points nearest</b> to an objective point (cyan) and the <b>active</b> objective 
+                                points (red) these are objective points that have been "reached" because at least one 
+                                feasible point was close enough to it. The diagonal shows again the 1D distribution of 
+                                points along a specific pi axis.</p><p class="dash"> - The <b>2D Customizable plot</b> 
+                                allows you to see a 2D projection of the DOE with any axis of your choosing and add as 
+                                many constraints to it as you like with the range sliders on the right.
+                                </p><p class="dash"> - The <b>Parallel plot</b> shows the DOE points as lines going 
+                                through all physical parameters and pi numbers at a height representing the points 
+                                value. By clicking and holding on any axis, you can create a constraint on which lines 
+                                are shown. It is possible to do this on multiple axis at once an you can also change the
+                                axis order by dragging a specific axis. The color of the line is based on where it ends 
+                                up on the last pi axis.</p><p> You can save any of these plots at any time using the 
+                                save button at the top right of each plot. They will appear in your work directory
+                                and will bear a name containing the type of plot as well as the date and time of save.
+                                </p></div>"""),
+                                v.CardTitle(children=["The Result Import Tab"], class_='display-1'),
+                                v.Img(src="Images/result_import_tab.png", max_width=1700, class_="mb-3"),
+                                widgets.HTML("""<div class="tab"><p>The <b>Result import tab</b> is where you can import
+                                a .csv file containing experimental results. The csv headers must have the same name as
+                                the your physical parameter names. The syntax for headers is: {name} [{unit}],  the unit
+                                 has to be written as a full word same as in the pint registry (m -> meter)
+                                . To help you with these strict headers, it is highly advised to use the <b>generate 
+                                empty csv</b> button which will generate a .csv with valid headers in you work 
+                                directory. Columns in any order are supported. It is recommended for the separator or 
+                                you .csv file to be "," and for numbers in your csv to use . (international standard). 
+                                That being said, csv with ";" separators and "," are supported but keep in mind that 
+                                generated DOEs follow the previous standard. If you want to sort by a specific 
+                                parameter, just click on the arrow at the top of each columns (appears on hover). You 
+                                can change page or change the number of rows per page at bottom left of the table.</p>
+                                <p> Once your results are imported you can proceed immediately to the <b>regression 
+                                tab</b> if you don't want any dependency or sensitivity analysis (switching to the 
+                                dependency analysis tab will launch calculations).</p></div>"""),
+                                v.CardTitle(children=["The Dependency Analysis Tab (Optional)"], class_='display-1'),
+                                v.Img(src="Images/dependency_analysis_tab.png", max_width=1700, class_="mb-3"),
+                                widgets.HTML("""<div class="tab"><p>The <b>Dependency analysis tab</b> is where you can 
+                                see which input pi is most correlated with a give output pi and which of the input pi 
+                                are correlated between themselves (and therefore redundant).</p><p class="dash"> - The 
+                                fist plot is the <b>dependency analysis</b>, on the vertical axis are the output pi and 
+                                on the horizontal axis are the input pi. The color of each graph is determined by its IF 
+                                (Impact Factor), a higher IF corresponds to a more "opaque" color.</p><p class="dash"> -
+                                The second plot is the <b>sensitivity analysis</b>, it shows how correlated input pi 
+                                numbers are between each other. You can change the <b>R^2 threshold</b> using the sider 
+                                above the graphs, this will show a polynomial regression of the graphs that allow for a
+                                R^2 coefficient superior to the threshold.</p><p> Below the plots, you will find several 
+                                checkboxes that if unchecked, remove a specific pi number form your current pi set. 
+                                Keep in mind that you always need at least one input pi and one output pi, that is why
+                                sometimes some checkboxes might be disabled.</p></div>"""),
+                                v.CardTitle(children=["The Regression Tab"], class_='display-1'),
+                                v.Img(src="Images/regression_tab.png", max_width=1700, class_="mb-3"),
+                                widgets.HTML("""<div class="tab"><p>The <b>Regression tab</b> is where the models will 
+                                be generated. The box at the top left reminds of your current pi set. Before you launch
+                                the calculations, choose the output pi of your model (not needed if you have only one 
+                                output pi) and the model order (which is not the number of terms). The regression 
+                                criteria is the one that the regression algorithm will try to minimize and the 
+                                regression type is either power law of polynomial.<p></p>
+                                Once you chose all the regression parameters, click on <b>show models</b>. This might 
+                                take some time (especially for higher orders). Once the calculations are over, the first
+                                 graph that will appear will show all the model's error criteria as a function of the 
+                                number of terms of the models. Notice the blue vertical line, that represents the 
+                                current chosen model. By default it should be the model with 1 term but you can change  
+                                it using the slider below. Next to the line will be displayed the error of the current 
+                                model as well as (if you have few points compared to the number of terms) the cross 
+                                validation error. The cross validation error is the error of the model across points 
+                                that were left out of the regression process by the algorithm. It is used to see if the 
+                                model is realistically applicable and not just "ad hoc". Below that graph, the model 
+                                will be shown in mathematical form with maximum accuracy on all coefficients. If you 
+                                want to generate a .py file with the current model as a python function, just click the 
+                                button with the python logo. Keep in mind the .py file is created in your work directory
+                                .</p><p> The last two graphs represent the current model. The left graph is simply a 
+                                comparison between the model and the points given and the right graph gives the 
+                                distribution of error of the model.</p></div>"""),
+                                v.CardTitle(children=["Use case example"], class_='display-2'),
+                                v.Img(src="Images/use_case.gif", max_width=1700, class_="mb-3"),
+                                v.CardTitle(children=["Credits"], class_='display-2'),
+                                widgets.HTML("""<div class="tab"><p> Authors: <b>Arthur Ammeux</b>, <b>Aurélien Reysset
+                                </b>
+                                </p><p>References:</p><p class="dash"> - <b>F. Sanchez, M. Budinger, I. Hazyuk</b>, 
+                                "Dimensional analysis and surrogate models for thermal modeling of power electronic 
+                                components", Electrimacs conference (2017), Toulouse<br>
+                                </p><p class="dash"> - <b>F. Sanchez, M. Budinger, I. Hazyuk</b>, "Dimensional analysis 
+                                and surrogate models for the thermal modeling of Multiphysics systems",  Applied 
+                                Thermal Engineering 110 (August 2016)</p></div>""")])
 
 # -----------Physical Parameters Tab------------------------------------------------------------------------------------
 
 
 name_entry = v.TextField(label=TL[22], v_model='', outlined=True)
 name_entry.on_event('click', error_end)
+name_entry.on_event('keydown.enter', add_item)
 
 desc_entry = v.TextField(label=TL[23], v_model='', outlined=True)
+desc_entry.on_event('click', error_end)
+desc_entry.on_event('keydown.enter', add_item)
 
 unit_entry = v.TextField(label=TL[24], v_model='', outlined=True, append_icon="mdi-help-circle")
 unit_entry.on_event('click', error_end)
 unit_entry.on_event('click:append', pint_link)
+unit_entry.on_event('keydown.enter', add_item)
 
 lb_entry = v.TextField(v_model="", type="number", label="Lower bound", outlined=True)
 lb_entry.on_event('click', error_end)
+lb_entry.on_event('keydown.enter', add_item)
 
 ub_entry = v.TextField(v_model="", type="number", label="Upper bound", outlined=True)
 ub_entry.on_event('click', error_end)
+ub_entry.on_event('keydown.enter', add_item)
 
 add_btn = v.Btn(children=[TL[25]], height=56, width="100%")
 add_btn.on_event('click', add_item)
@@ -2468,6 +3192,13 @@ pi_const_area = v.Textarea(v_model='',
                            row=6)
 pi_const_area.on_event("click", error_end)
 
+relative_nb_points_info = v.Alert(type="info",
+                                  border="top",
+                                  class_="my-2",
+                                  children=["Slider numbers correspond to how many points will be generated in the DOE "
+                                            "along a specific pi axis relative to others"])
+relative_nb_points_sliders = v.Col(children=[])
+
 const_panel = v.ExpansionPanels(v_model=[0], multiple=True, children=[
     v.ExpansionPanel(children=[v.ExpansionPanelHeader(color="grey lighten-3",
                                                       class_='title font-weight-regular',
@@ -2476,7 +3207,11 @@ const_panel = v.ExpansionPanels(v_model=[0], multiple=True, children=[
     v.ExpansionPanel(children=[v.ExpansionPanelHeader(color="grey lighten-3",
                                                       class_='title font-weight-regular',
                                                       children=["Pi constraints"]),
-                               v.ExpansionPanelContent(children=[pi_const_row, pi_const_area])])
+                               v.ExpansionPanelContent(children=[pi_const_row, pi_const_area])]),
+    v.ExpansionPanel(children=[v.ExpansionPanelHeader(color="grey lighten-3",
+                                                      class_='title font-weight-regular',
+                                                      children=["Relative number of points"]),
+                               v.ExpansionPanelContent(children=[relative_nb_points_info, relative_nb_points_sliders])])
 ])
 
 select_DOE = v.Select(v_model="Full Fact", label="Select DOE type", outlined=True, items=["Full Fact", "Latin"],
@@ -2494,7 +3229,8 @@ size_info = v.Alert(type="info",
                     border="top",
                     style_="margin : 15px 0 20px 0px",
                     class_="mx-2",
-                    children=["Default wished size is determined by the anticipated model order"])
+                    children=["Default wished size is determined by the anticipated model order "
+                              "(10x the maximum number of model terms)"])
 
 wished_size_entry = v.TextField(v_model=4 * DOE_MULTIPLIER,
                                 label="Wished size",
@@ -2645,6 +3381,7 @@ result_btn.on_event("click", result_import)
 
 result_alert = v.Alert(type="error", dense=True, outlined=True, children=["Error"])
 result_warning = v.Alert(type="warning", dense=True, outlined=True, children=["No physical parameter defined"])
+result_warning_2 = v.Alert(type="warning", dense=True, outlined=True, children=[])
 result_alert_cont = v.Container(children=[])
 
 fc_res = ipf.FileChooser(WORKDIR)
@@ -2715,7 +3452,6 @@ sensitivity_info = v.Alert(type="info", border="top", style_="margin : 10px 0 10
                                      "IF : Impact factor IF=MCC*alpha"])
 
 sensitivity_output = widgets.Output()
-
 
 threshold_slider = v.Slider(label="R^2 threshold", v_model=0.9, min=0, max=1, step=0.01, thumb_label="always",
                             thumb_size=24, class_="mx-2")
@@ -2807,13 +3543,20 @@ model_order_entry.on_event("click", error_end)
 select_reg_criteria = v.Select(v_model="max(error)", label="Select regression criteria", outlined=True,
                                items=["max(error)", "avg(error magnitude)", "avg(error)", "sigma(error)"])
 
+select_reg_type = v.Select(v_model="Power Law", label="Select regression type", outlined=True,
+                           items=["Power Law", "Polynomial"])
+
 models_btn = v.Btn(children=["Show models"], class_="mx-2", height=55, width=300)
 models_btn.on_event("click", regression_models)
 models_btn_row = v.Row(children=[models_btn], justify="center")
 
 regression_parameters = v.Row(children=[dependency_set,
-                                        v.Col(children=[select_pi0, select_reg_criteria, model_order_entry,
-                                                        models_btn_row], class_="mx-2"),
+                                        v.Col(children=[
+                                            v.Row(children=[
+                                                v.Col(children=[select_pi0, select_reg_criteria]),
+                                                v.Col(children=[model_order_entry, select_reg_type])]),
+                                            models_btn_row],
+                                            class_="mx-2"),
                                         v.Spacer()
                                         ], justify="center")
 
@@ -2840,9 +3583,12 @@ tool_save_reg = v.Tooltip(bottom=True, v_slots=[{
 save_reg_cont = v.Row(children=[v.Spacer(), tool_save_reg])
 
 models_output = widgets.Output()
-models_output.layout.border = "2px solid black"
+#models_output.layout.border = "2px solid black"
 models_output_col = v.Col(children=[save_models_cont, models_output])
 
+delta = 0.12
+_, _, x_w, _ = GetWindowRect(GetForegroundWindow())
+slider_style = f"margin : 0px {int(118/(1 - delta) * (x_w/1928 -delta))}px 0px 56px"
 nb_terms_slider = v.Slider(v_model=0,
                            class_="mx-2",
                            tick_labels=[1, 2],
@@ -2851,13 +3597,24 @@ nb_terms_slider = v.Slider(v_model=0,
                            ticks="always",
                            tick_size="4")
 nb_terms_slider.on_event("change", perform_regression)
-nb_terms_slider_row = v.Row(children=[nb_terms_slider], style_=f"margin : 0px 118px 0px 56px")
+nb_terms_slider_row = v.Row(children=[nb_terms_slider], style_=slider_style)
 
 regression_output = widgets.Output()
 
+python_func_btn = v.Btn(children=[v.Icon(children=["mdi-language-python"], large=True)], v_on='tooltip.on', width=200)
+python_func_btn.on_event('click', save_py_func)
+tool_python_func = v.Tooltip(bottom=True, v_slots=[{
+                                              'name': 'activator',
+                                              'variable': 'tooltip',
+                                              'children': python_func_btn,
+                                               }],
+                             children=["Save model as a python function"],
+                             class_="overflow-hidden")
 expression_cont = v.Container(children=[], style_="margin : 0px 10px 10px 10px")
 expression_card = v.Card(children=[v.CardTitle(class_="title font-weight-medium", children=["Model expression:"]),
-                                   expression_cont], style_='overflow-x: auto')
+                                   expression_cont], class_="my-3", style_='overflow-x: auto',
+                         color="green lighten-3")
+expression_col = v.Col(children=[expression_card, tool_python_func], align="center")
 
 regression_cont = v.Col(children=[reg_alert_cont, regression_parameters, reg_info])
 
@@ -2990,8 +3747,8 @@ logs_card = v.Sheet(children=[], height=37, rounded=True, width="50%", class_=lo
 logs_card.class_ = logs_card.class_ + "; grey--text"
 logs_card.children = [v.Html(tag='div', children=["Default work directory: " + WORKDIR], class_="text-left py-2 px-2")]
 
-img_cont = v.Row(children=[v.Img(src="logo_cut.png", max_height="55px", max_width="200px", contain=False,
-                                 calss_="mr-3")],
+img_cont = v.Row(children=[v.Img(src="Images/logo_cut.png", max_height="55px", max_width="200px", contain=False,
+                                 class_="mr-3")],
                  justify="end")
 sl_tool = v.Toolbar(children=[tool_icons_card, logs_card, img_cont], color="grey lighten-3",
                     justify="space-between")

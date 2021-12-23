@@ -4,6 +4,15 @@ from datetime import datetime
 
 
 def save_all_plots(workdir):
+    """
+    Parameters
+    ----------
+    workdir Current work directory
+
+    Returns Saves all plots from the temp folder to the current work directory
+    -------
+
+    """
     source_dir = workdir + "\\temp"
     target_dir = workdir
 
@@ -21,6 +30,16 @@ def save_all_plots(workdir):
 
 
 def save_single_plot(workdir, name):
+    """
+    Parameters
+    ----------
+    workdir Current work directory
+    name Plot default name
+
+    Returns Saves the plot from the temp folder to the current work directory
+    -------
+
+    """
     add_temp(workdir)
     now = datetime.now()
     dt_string = now.strftime("_%d%m%y_%H%M%S")
@@ -38,11 +57,29 @@ def save_single_plot(workdir, name):
 
 
 def add_temp(workdir):
+    """
+    Parameters
+    ----------
+    workdir Current work directory
+    Returns Adds a temp folder to the current work directory
+    -------
+
+    """
     if not os.path.exists(workdir + "\\temp"):
         os.mkdir(workdir + "\\temp")
 
 
 def move_temp(old_workdir, new_workdir):
+    """
+    Parameters
+    ----------
+    old_workdir Previous work directory
+    new_workdir Current work directory
+
+    Returns Moves the temp folder from the previous work directory to the current work directory
+    -------
+
+    """
     if os.path.exists(new_workdir + "\\temp"):
         shutil.rmtree(new_workdir + "\\temp")
     try:
@@ -51,6 +88,7 @@ def move_temp(old_workdir, new_workdir):
     except shutil.Error as e:
         print(e)
 
+# For testing purposes only
 
 def save_plot_test(workdir):
     os.chdir(workdir)

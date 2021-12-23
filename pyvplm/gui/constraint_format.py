@@ -2,6 +2,15 @@ from pyvplm.core.definition import Constraint, ConstraintSet
 
 
 def str_to_constraint_set(inp):
+    """
+    Parameters
+    ----------
+    inp a string to be converted
+
+    Returns Converts a input string in a ConstraintSet
+    -------
+
+    """
     lines = inp.strip().splitlines()
     const_list = []
     for line in lines:

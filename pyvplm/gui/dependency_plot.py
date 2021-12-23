@@ -10,6 +10,18 @@ from win32gui import GetWindowRect, GetForegroundWindow
 
 
 def pi_sensitivity_plot(pi_set, doePI, workdir, **kwargs):
+    """
+    Parameters
+    ----------
+    pi_set Current pi set (PositiveParameterSet)
+    doePI DOE in pi space
+    workdir Current work directory
+    kwargs "latex" toggles usage of latex, "pi0" input pi numbers, "piN" ouptut pi numbers
+
+    Returns Plots sensitivity analysis
+    -------
+
+    """
     spl.add_temp(workdir)
     latex = False
     pi0_list = [list(pi_set.dictionary.keys())[0]]
@@ -44,6 +56,19 @@ def pi_sensitivity_plot(pi_set, doePI, workdir, **kwargs):
 
 
 def pi_dependency_plot(pi_set, doePI, workdir, threshold=0.9, **kwargs):
+    """
+    Parameters
+    ----------
+    pi_set Current pi set (PositiveParameterSet)
+    doePI DOE in pi space
+    workdir Current work directory
+    threshold R^2 threshold
+    kwargs "latex" toggles usage of latex, "pi0" input pi numbers, "piN" ouptut pi numbers
+
+    Returns Plots dependency analysis
+    -------
+
+    """
     spl.add_temp(workdir)
     x_list_ = []
     y_list_ = []
@@ -66,6 +91,18 @@ def pi_dependency_plot(pi_set, doePI, workdir, threshold=0.9, **kwargs):
 
 
 def regression_models_plot(models, workdir, y_max_axis=1000, latex=True):
+    """
+    Parameters
+    ----------
+    models Regression models calculated
+    workdir Current work directory
+    y_max_axis Max y on each subgraph
+    latex toggles latex usage (recommended to be set on True)
+
+    Returns Plots the top graphs in the regression tab
+    -------
+
+    """
     spl.add_temp(workdir)
     abs_error_max_train = models["max |e|"][0]
     abs_error_max_test = models["max |e|"][1]
@@ -133,6 +170,20 @@ def regression_models_plot(models, workdir, y_max_axis=1000, latex=True):
 
 
 def perform_regression_plot(expression, Y, Y_reg, eff_pi0, pi_list, workdir):
+    """
+    Parameters
+    ----------
+    expression Current model expression (string)
+    Y Result points
+    Y_reg Points calculated by the current regression model
+    eff_pi0 effective pi0
+    pi_list Effective list of pi numbers
+    workdir Current work directory
+
+    Returns Plots the bottom graphs in the regression tab
+    -------
+
+    """
     spl.add_temp(workdir)
     plot.rc("text", usetex=True)
     plot.rc("font", family="serif")
@@ -153,11 +204,11 @@ def perform_regression_plot(expression, Y, Y_reg, eff_pi0, pi_list, workdir):
     elected_pi0 = int(elected_pi0.replace("pi", "")) - 1
     if eff_pi0 != -1:
         elected_pi0 = eff_pi0
-    axs[0].set_xlabel("$" + pi_list[elected_pi0] + "$", fontsize=16)
-    y_label = "$" + pi_list[elected_pi0] + " \simeq f("
+    axs[0].set_xlabel("$" + pi_list[elected_pi0].replace("pi", "\pi_") + "$", fontsize=16)
+    y_label = "$" + pi_list[elected_pi0].replace("pi", "\pi_") + " \simeq f("
     for i in range(len(pi_list)):
         if i != elected_pi0:
-            y_label += pi_list[i] + ","
+            y_label += pi_list[i].replace("pi", "\pi_") + ","
     y_label = y_label[0: len(y_label) - 1] + ")$"
     axs[0].set_ylabel(y_label, fontsize=18)
     error = ((numpy.array(Y_reg) - numpy.array(Y)) * (1 / numpy.array(Y)) * 100).tolist()
