@@ -499,6 +499,7 @@ def create_const_doe(parameter_set, pi_set, func_x_to_pi, whished_size, **kwargs
                   * **log_space** (*bool*): defines if fullfact has to be in log space or when false, linear (default is log - True)
                   * **track** (*bool*): defines if the different process steps information have to be displayed (default is False)
                   * **test_mode** (*bool*): set to False to show plots (default is False)
+                  * **relative_points** (*list*): specifies the realtive number of points needed for each pi number (same order as in pi_set)
      
      Returns
      -------    
@@ -546,6 +547,7 @@ def create_const_doe(parameter_set, pi_set, func_x_to_pi, whished_size, **kwargs
         log_space = True
         track = False
         test_mode = False
+        relative_points = []
         for key, value in kwargs.items():
             if not (
                 key
@@ -558,6 +560,7 @@ def create_const_doe(parameter_set, pi_set, func_x_to_pi, whished_size, **kwargs
                     "log_space",
                     "track",
                     "test_mode",
+                    "relative_points"
                 ]
             ):
                 raise KeyError("unknown argument " + key)
@@ -620,6 +623,11 @@ def create_const_doe(parameter_set, pi_set, func_x_to_pi, whished_size, **kwargs
                     test_mode = value
                 else:
                     raise ValueError("test_mode should be a boolean.")
+            elif key == "relative_points":
+                if isinstance(value, list):
+                    relative_points = value
+                else:
+                    raise ValueError("relative_points should be a list.")
         # Extract bounds on parameters set and parameters number
         x_Bounds = []
         for index in parameter_set.dictionary.keys():
@@ -649,6 +657,7 @@ def create_const_doe(parameter_set, pi_set, func_x_to_pi, whished_size, **kwargs
         if not (numpy.issubdtype(level_repartition.dtype, numpy.integer)):
             raise TypeError("level_repartition type in index should be integer.")
         # Define factorisation for population calculation
+
         def fact_level(X):
             for i in range(len(X)):
                 if X[i] == 0:
@@ -707,7 +716,7 @@ def create_const_doe(parameter_set, pi_set, func_x_to_pi, whished_size, **kwargs
             step = 1
             previous_size = 0
             obtained_size_on_x = 0
-            # [PHASE1] Loop increasing x parameters'level till obtaining a contrained set size >= whished_size * init_coverage_factor [CAN BE SLOW]
+            # [PHASE1] Loop increasing x parameters'level until obtaining a contrained set size >= whished_size * init_coverage_factor [CAN BE SLOW]
             if track:
                 print(
                     "PHASE1: Constructing constrained X-DOE based on size >= {} criteria".format(
