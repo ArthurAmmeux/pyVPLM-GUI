@@ -88,7 +88,7 @@ class Parameter:
         proper_syntax = proper_syntax and self.check_bounds(defined_bounds)
         # Save parameter attributes' values
         if proper_syntax:
-            if len(defined_bounds) == 2:
+            if len(defined_bounds) == 2 or formatted_units == "dimensionless":
                 self.name = name.lower()
             else:
                 self.name = name.upper()
@@ -251,12 +251,12 @@ class Parameter:
                 raise AssertionError(
                     "bad definition of bounds, should be defined_bounds[0]<defined_bounds[1]"
                 )
-            except:
+            except Exception:
                 raise TypeError("defined_bounds should be a [1x2] list of floats or integers")
         elif len(defined_bounds) == 1:
             try:
                 float(defined_bounds[0])
-            except:
+            except Exception:
                 raise TypeError("value should be a [1x1] list of float or integer")
         else:
             raise IndexError(
